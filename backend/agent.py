@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 from typing import Optional
 import os
 import aiohttp
@@ -31,31 +32,47 @@ logger = logging.getLogger("agent-Dakota-1ef9")
 
 # Carga el archivo .env de la carpeta actual
 load_dotenv()
+DB_PATH = os.getenv('DB_PATH', '/app/data/encuestas.db')
+
+def get_config():
+    """Lee la configuración de la base de datos"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Leer ai_config
+        cursor.execute("SELECT * FROM ai_config ORDER BY id DESC LIMIT 1")
+        ai_row = cursor.fetchone()
+        
+        # Leer agent_config
+        cursor.execute("SELECT * FROM agent_config ORDER BY id DESC LIMIT 1")
+        agent_row = cursor.fetchone()
+        
+        conn.close()
+        
+        ai_config = dict(ai_row) if ai_row else {}
+        agent_config = dict(agent_row) if agent_row else {}
+        
+        return ai_config, agent_config
+    except Exception as e:
+        logger.error(f"Error leyendo config DB: {e}")
+        return {}, {}
 
 class DefaultAgent(Agent):
-    def __init__(self) -> None:
+    def __init__(self, instructions: str, greeting: str) -> None:
         # Puerto 8001 para el Bridge local
         self.server_url = os.getenv("BRIDGE_SERVER_URL", "http://127.0.0.1:8001")
+        self.greeting = greeting
         
         super().__init__(
-            instructions="""Eres un asistente de encuestas de calidad de Ausarta. Tu tono es profesional, amable y eficiente.
-
-            TU MISIÓN:
-            1. Saluda y pregunta si tienen un momento. ESPERA SIEMPRE A QUE EL USUARIO RESPONDA.
-            2. Si aceptan, haz las 3 preguntas numéricas (del 1 al 10) una a una.
-            3. Pide un comentario final breve.
-
-            REGLAS CRÍTICAS DE HERRAMIENTAS:
-            - NO TE INVENTES LOS DATOS. Solo usa 'guardar_encuesta' cuando el usuario te haya dado las 3 notas y el comentario.
-            - NO ejecutes 'finalizar_llamada' hasta que te hayas despedido después de guardar los datos.
-            - Si el usuario dice que NO quiere participar, di 'Entendido, gracias' y ejecuta 'finalizar_llamada'.
-            - El ID de la encuesta búscalo en el nombre de la sala (ej: encuesta_495 -> ID 495). Si no lo ves, usa 0.""",
+            instructions=instructions,
         )
 
     async def on_enter(self):
         # Forzamos al agente a saludar primero sin usar herramientas
         await self.session.generate_reply(
-            instructions="Saluda cordialmente al usuario y pregunta si tiene un minuto para una encuesta rápida. No uses herramientas todavía.",
+            instructions=f"{self.greeting} No uses herramientas todavía.",
             allow_interruptions=False
         )
 
@@ -102,17 +119,29 @@ server = AgentServer(setup_fnc=prewarm)
 
 @server.rtc_session(agent_name="Dakota-1ef9")
 async def entrypoint(ctx: JobContext):
+    # Cargar configuración dinámica
+    ai_config, agent_config = get_config()
+    
+    # Defaults
+    llm_model = ai_config.get('llm_model', 'llama-3.3-70b-versatile')
+    tts_model = ai_config.get('tts_model', 'sonic-3')
+    tts_voice = ai_config.get('tts_voice', '6511153f-72f9-4314-a204-8d8d8afd646a')
+    stt_model = ai_config.get('stt_model', 'nova-3')
+    
+    instructions = agent_config.get('instructions', "Eres un asistente de encuestas de calidad de Ausarta.")
+    greeting = agent_config.get('greeting', "Hola, soy Dakota de Ausarta.")
+
     session = AgentSession(
-        stt=inference.STT(model="deepgram/nova-3", language="es"),
-        # Configuración Groq
+        stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
+        # Configuración Groq (LLM)
         llm=openai.LLM(
-            model="llama-3.3-70b-versatile",
+            model=llm_model,
             base_url="https://api.groq.com/openai/v1",
             api_key=os.getenv("GROQ_API_KEY")
         ),
         tts=inference.TTS(
-            model="cartesia/sonic-3",
-            voice="6511153f-72f9-4314-a204-8d8d8afd646a",
+            model=f"cartesia/{tts_model}",
+            voice=tts_voice,
             language="es"
         ),
         vad=ctx.proc.userdata["vad"],
@@ -120,7 +149,7 @@ async def entrypoint(ctx: JobContext):
     )
 
     await session.start(
-        agent=DefaultAgent(),
+        agent=DefaultAgent(instructions=instructions, greeting=greeting),
         room=ctx.room,
     )
 
