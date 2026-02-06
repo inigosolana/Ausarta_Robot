@@ -23,6 +23,13 @@ interface AIConfig {
   language: string;
 }
 
+interface PromptTemplate {
+  id: number;
+  name: string;
+  description: string;
+  content: string;
+}
+
 const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall }) => {
   const [agent, setAgent] = useState<AgentConfig>({
     name: '',
@@ -31,6 +38,8 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
     instructions: '',
     greeting: ''
   });
+
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
 
   const [aiConfig, setAiConfig] = useState<AIConfig>({
     llm_provider: 'groq',
@@ -58,9 +67,10 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
   const loadData = async () => {
     try {
       setIsLoading(true);
-      const [agentRes, aiRes] = await Promise.all([
+      const [agentRes, aiRes, templatesRes] = await Promise.all([
         fetch(`${API_URL}/agents`),
-        fetch(`${API_URL}/ai/config`)
+        fetch(`${API_URL}/ai/config`),
+        fetch(`${API_URL}/prompts`)
       ]);
 
       if (agentRes.ok) {
@@ -71,6 +81,10 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
       if (aiRes.ok) {
         const aiData = await aiRes.json();
         if (Object.keys(aiData).length > 0) setAiConfig(aiData);
+      }
+
+      if (templatesRes.ok) {
+        setTemplates(await templatesRes.json());
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -229,13 +243,65 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
 
           {/* Instructions */}
           <section className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm space-y-4">
-            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              <Brain size={20} className="text-purple-500" />
-              Instrucciones (Prompt)
-            </h3>
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <Brain size={20} className="text-purple-500" />
+                Instrucciones (Prompt)
+              </h3>
+
+              <div className="flex items-center gap-2">
+                {/* Selector de Templates */}
+                <select
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 max-w-[150px]"
+                  onChange={(e) => {
+                    const template = templates.find(t => t.id === Number(e.target.value));
+                    if (template) {
+                      if (confirm('¿Reemplazar las instrucciones actuales con esta plantilla?')) {
+                        setAgent({ ...agent, instructions: template.content });
+                      }
+                    }
+                  }}
+                  value=""
+                >
+                  <option value="" disabled>📂 Cargar Plantilla...</option>
+                  {templates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={async () => {
+                    const name = prompt('Nombre para la nueva plantilla:');
+                    if (name) {
+                      try {
+                        const res = await fetch(`${API_URL}/prompts`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            name,
+                            description: 'Creado desde el editor',
+                            content: agent.instructions
+                          })
+                        });
+                        if (res.ok) {
+                          alert('Plantilla guardada!');
+                          loadData(); // Recargar templates
+                        }
+                      } catch (e) {
+                        alert('Error al guardar plantilla');
+                      }
+                    }
+                  }}
+                  className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 transition-colors"
+                >
+                  💾 Guardar como Plantilla
+                </button>
+              </div>
+            </div>
+
             <div className="relative">
               <textarea
-                rows={12}
+                rows={15}
                 value={agent.instructions}
                 onChange={(e) => setAgent({ ...agent, instructions: e.target.value })}
                 className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-purple-500/20 outline-none font-mono text-sm bg-gray-50"

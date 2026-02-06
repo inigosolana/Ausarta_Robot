@@ -78,6 +78,77 @@ def init_database():
             VALUES ('groq', 'llama-3.3-70b-versatile', 'cartesia', 'sonic-3', '6511153f-72f9-4314-a204-8d8d8afd646a', 'deepgram', 'nova-3', 'es')
         ''')
     
+    # Tabla de configuración del agente
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS agent_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name VARCHAR(100) DEFAULT 'Ausarta Agent',
+            use_case VARCHAR(100) DEFAULT 'Encuestas de Calidad',
+            description TEXT DEFAULT 'Realiza encuestas de satisfacción',
+            instructions TEXT DEFAULT 'Eres un asistente de encuestas de calidad de Ausarta.',
+            greeting TEXT DEFAULT 'Hola, soy Dakota de Ausarta. ¿Tiene un minuto para una encuesta rápida?',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Insertar configuración del agente por defecto si no existe
+    cursor.execute('SELECT COUNT(*) FROM agent_config')
+    if cursor.fetchone()[0] == 0:
+        cursor.execute('''
+            INSERT INTO agent_config (name, use_case, description, instructions, greeting)
+            VALUES (
+                'Ausarta Survey Agent',
+                'Encuestas de Calidad',
+                'Realiza encuestas de satisfacción a clientes',
+                'Eres un asistente de encuestas de calidad de Ausarta. Tu tono es profesional, amable y eficiente.
+
+TU MISIÓN:
+1. Saluda y pregunta si tienen un momento. ESPERA SIEMPRE A QUE EL USUARIO RESPONDA.
+2. Si aceptan, haz las 3 preguntas numéricas (del 1 al 10) una a una.
+3. Pide un comentario final breve.
+
+REGLAS CRÍTICAS:
+- NO TE INVENTES LOS DATOS. Solo usa guardar_encuesta cuando el usuario te haya dado las 3 notas y el comentario.
+- NO ejecutes finalizar_llamada hasta que te hayas despedido después de guardar los datos.
+- Si el usuario dice que NO quiere participar, di Entendido, gracias y ejecuta finalizar_llamada.
+- El ID de la encuesta búscalo en el nombre de la sala (ej: encuesta_495 -> ID 495).',
+                'Hola, soy Dakota de Ausarta. ¿Tiene un minuto para una encuesta rápida de calidad?'
+            )
+        ''')
+
+    # Tabla de plantillas de prompts
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS prompt_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name VARCHAR(100) NOT NULL,
+            description TEXT,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Insertar Template por defecto (Ausarta) si no existe
+    cursor.execute('SELECT COUNT(*) FROM prompt_templates')
+    if cursor.fetchone()[0] == 0:
+        default_prompt = """Eres un asistente de encuestas de calidad de Ausarta. Tu tono es profesional, amable y eficiente.
+
+TU MISIÓN:
+1. Saluda y pregunta si tienen un momento. ESPERA SIEMPRE A QUE EL USUARIO RESPONDA.
+2. Si aceptan, haz las 3 preguntas numéricas (del 1 al 10) una a una.
+3. Pide un comentario final breve.
+
+REGLAS CRÍTICAS:
+- NO TE INVENTES LOS DATOS. Solo usa guardar_encuesta cuando el usuario te haya dado las 3 notas y el comentario.
+- NO ejecutes finalizar_llamada hasta que te hayas despedido después de guardar los datos.
+- Si el usuario dice que NO quiere participar, di Entendido, gracias y ejecuta finalizar_llamada.
+- El ID de la encuesta búscalo en el nombre de la sala (ej: encuesta_495 -> ID 495)."""
+        
+        cursor.execute('INSERT INTO prompt_templates (name, description, content) VALUES (?, ?, ?)', 
+                      ('Encuesta Calidad Ausarta', 'Plantilla estándar para encuestas de satisfacción', default_prompt))
+        
+        cursor.execute('INSERT INTO prompt_templates (name, description, content) VALUES (?, ?, ?)', 
+                      ('Agente de Ventas', 'Para cualificar leads interesados', 'Eres un vendedor experto. Tu objetivo es descubrir las necesidades del cliente y agendar una reunión.'))
+
     # Crear índices
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_telefono ON encuestas(telefono)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_fecha ON encuestas(fecha)')
@@ -117,6 +188,18 @@ class AIConfig(BaseModel):
     stt_model: str = "nova-3"
     language: str = "es"
 
+class AgentConfigModel(BaseModel):
+    name: str
+    use_case: str
+    description: str
+    instructions: str
+    greeting: str
+
+class PromptTemplateModel(BaseModel):
+    name: str
+    description: str
+    content: str
+
 class InicioEncuesta(BaseModel):
     telefono: str
 
@@ -143,30 +226,73 @@ async def root():
 
 @app.get("/api/agents")
 async def get_agents():
-    """Lista todos los agentes de voz configurados"""
-    # Por ahora devolvemos un mock, luego podemos persistir en DB
-    return [
-        {
-            "id": "1",
-            "name": "Real Estate Qualifier",
-            "callType": "Outbound",
-            "useCase": "Lead Gen",
-            "description": "Qualifies leads for real estate investment."
-        }
-    ]
+    """Obtiene el agente único configurado"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM agent_config ORDER BY id DESC LIMIT 1")
+        row = cursor.fetchone()
+        if row:
+            return [{
+                "id": "1",
+                "name": row[1],
+                "callType": "Outbound",
+                "useCase": row[2],
+                "description": row[3],
+                "instructions": row[4],
+                "greeting": row[5]
+            }]
+        return []
+    finally:
+        cursor.close()
+        conn.close()
 
-@app.post("/api/agents")
-async def create_agent(agent: VoiceAgentCreate):
-    """Crea un nuevo agente de voz"""
-    # Aquí podríamos guardarlo en la DB
-    return {
-        "id": "generated-id",
-        "name": agent.name,
-        "callType": agent.callType,
-        "useCase": agent.useCase,
-        "description": agent.description,
-        "status": "created"
-    }
+@app.put("/api/agents/1")
+async def update_agent(agent: AgentConfigModel):
+    """Actualiza la configuración del agente"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            UPDATE agent_config 
+            SET name=?, use_case=?, description=?, instructions=?, greeting=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=1
+        ''', (agent.name, agent.use_case, agent.description, agent.instructions, agent.greeting))
+        conn.commit()
+        print(f"✅ Configuración del agente actualizada: {agent.name}")
+        return {"status": "success", "agent": agent}
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.get("/api/prompts")
+async def get_prompts():
+    """Obtiene todas las plantillas de prompts"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM prompt_templates ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.post("/api/prompts")
+async def create_prompt(template: PromptTemplateModel):
+    """Crea una nueva plantilla de prompt"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO prompt_templates (name, description, content) VALUES (?, ?, ?)",
+            (template.name, template.description, template.content)
+        )
+        conn.commit()
+        return {"status": "success", "id": cursor.lastrowid}
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.post("/api/telephony/config")
 async def save_telephony_config(config: TelephonyConfig):
@@ -224,6 +350,80 @@ async def save_ai_config(config: AIConfig):
         conn.commit()
         print(f"✅ Configuración de AI guardada: LLM={config.llm_provider}, TTS={config.tts_provider}, STT={config.stt_provider}")
         return {"status": "success", "config": config}
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.get("/api/dashboard/stats")
+async def get_dashboard_stats():
+    """Obtiene estadísticas generales del dashboard"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Total de llamadas
+        cursor.execute("SELECT COUNT(*) FROM encuestas")
+        total_llamadas = cursor.fetchone()[0]
+        
+        # Llamadas completadas
+        cursor.execute("SELECT COUNT(*) FROM encuestas WHERE completada = 1")
+        completadas = cursor.fetchone()[0]
+        
+        # Promedio de puntuaciones
+        cursor.execute("""
+            SELECT 
+                AVG(puntuacion_comercial) as avg_comercial,
+                AVG(puntuacion_instalador) as avg_instalador,
+                AVG(puntuacion_rapidez) as avg_rapidez
+            FROM encuestas 
+            WHERE completada = 1
+        """)
+        row = cursor.fetchone()
+        
+        return {
+            "total_calls": total_llamadas,
+            "completed_calls": completadas,
+            "pending_calls": total_llamadas - completadas,
+            "avg_scores": {
+                "comercial": round(row[0], 2) if row[0] else 0,
+                "instalador": round(row[1], 2) if row[1] else 0,
+                "rapidez": round(row[2], 2) if row[2] else 0,
+                "overall": round((row[0] + row[1] + row[2]) / 3, 2) if row[0] else 0
+            }
+        }
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.get("/api/dashboard/recent-calls")
+async def get_recent_calls():
+    """Obtiene las últimas llamadas realizadas"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT id, telefono, fecha, completada, 
+                   puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez
+            FROM encuestas 
+            ORDER BY fecha DESC 
+            LIMIT 10
+        """)
+        rows = cursor.fetchall()
+        
+        calls = []
+        for row in rows:
+            calls.append({
+                "id": row[0],
+                "phone": row[1],
+                "date": row[2],
+                "status": "completed" if row[3] == 1 else "pending",
+                "scores": {
+                    "comercial": row[4],
+                    "instalador": row[5],
+                    "rapidez": row[6]
+                }
+            })
+        
+        return calls
     finally:
         cursor.close()
         conn.close()
