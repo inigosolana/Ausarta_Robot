@@ -1,0 +1,9 @@
+
+{
+  "name": "Ausarta Robot Voice Agent Platform",
+  "description": "A professional dashboard for managing AI voice agents, telephony configurations, and call campaigns, integrated with Gemini Live for real-time voice interaction.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
