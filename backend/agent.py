@@ -23,11 +23,9 @@ from livekit.agents import (
     utils,
 )
 from livekit.plugins import (
-    noise_cancellation,
     silero,
     openai, 
 )
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 logger = logging.getLogger("agent-Dakota-1ef9")
 
@@ -117,7 +115,6 @@ async def entrypoint(ctx: JobContext):
             voice="6511153f-72f9-4314-a204-8d8d8afd646a",
             language="es"
         ),
-        turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=True,
     )
@@ -125,11 +122,6 @@ async def entrypoint(ctx: JobContext):
     await session.start(
         agent=DefaultAgent(),
         room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                noise_cancellation=lambda params: noise_cancellation.BVCTelephony() if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP else noise_cancellation.BVC(),
-            ),
-        ),
     )
 
     background_audio = BackgroundAudioPlayer(
