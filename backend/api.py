@@ -6,7 +6,6 @@ import sqlite3
 import os
 import re
 import asyncio
-import subprocess
 from datetime import datetime
 from typing import Optional, Union
 from dotenv import load_dotenv
@@ -161,24 +160,28 @@ async def make_outbound_call(call_request: OutboundCallRequest):
         # 2. Crear sala
         sala = f"encuesta_{id_ficha}"
         
-        # 3. Despertar agente
-        print(f"🤖 Despertando agente en sala: {sala}")
-        try:
-            subprocess.run(
-                ["lk", "dispatch", "create", "--room", sala, "--agent-name", call_request.agentName],
-                check=True,
-                capture_output=True
-            )
-        except:
-            pass  # El agente puede autoconectarse
-        
-        # 4. Crear llamada SIP
-        print(f"📞 Creando participante SIP...")
+        # 3. Crear API de LiveKit
         lkapi = api.LiveKitAPI(
             os.getenv("LIVEKIT_URL"),
             os.getenv("LIVEKIT_API_KEY"),
             os.getenv("LIVEKIT_API_SECRET"),
         )
+        
+        # 4. Despertar agente usando la API
+        print(f"🤖 Despertando agente en sala: {sala}")
+        try:
+            await lkapi.agent_dispatch.create_dispatch(
+                api.CreateAgentDispatchRequest(
+                    room=sala,
+                    agent_name=call_request.agentName,
+                )
+            )
+            print(f"✅ Agente despachado correctamente")
+        except Exception as e:
+            print(f"⚠️ Warning al despachar agente: {e}")
+        
+        # 5. Crear llamada SIP
+        print(f"📞 Creando participante SIP...")
         
         trunk_id = os.getenv("SIP_OUTBOUND_TRUNK_ID", "ST_UBZcusTkNdtH")
         
