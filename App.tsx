@@ -27,9 +27,10 @@ import CampaignsView from './views/CampaignsView';
 import VoiceAgentsView from './views/VoiceAgentsView';
 import LiveCallView from './views/LiveCallView';
 import DashboardView from './views/DashboardView';
+import ResultsView from './views/ResultsView';
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<ViewState>('overview');
+  const [currentView, setCurrentView] = useState<ViewState | 'results'>('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCalling, setIsCalling] = useState(false);
 
@@ -45,6 +46,8 @@ const App: React.FC = () => {
         return <VoiceAgentsView onStartCall={() => setIsCalling(true)} />;
       case 'overview':
         return <DashboardView />;
+      case 'results':
+        return <ResultsView />;
       default:
         return (
           <div className="flex items-center justify-center h-full text-gray-400">
@@ -129,43 +132,22 @@ const App: React.FC = () => {
             onClick={() => setCurrentView('tools')}
             collapsed={!isSidebarOpen}
           />
-          <SidebarItem
-            icon={<FileText size={18} />}
-            label="Files"
-            isActive={currentView === 'files'}
-            onClick={() => setCurrentView('files')}
-            collapsed={!isSidebarOpen}
-          />
-          <SidebarItem
-            icon={<Code2 size={18} />}
-            label="Developers"
-            isActive={currentView === 'developers'}
-            onClick={() => setCurrentView('developers')}
-            collapsed={!isSidebarOpen}
-          />
 
           <div className={`mt-6 mb-2 px-3 text-[10px] uppercase tracking-wider font-bold text-gray-400 ${!isSidebarOpen && 'hidden'}`}>
             Observe
           </div>
           <SidebarItem
+            icon={<ClipboardList size={18} />}
+            label="Results"
+            isActive={currentView === 'results'}
+            onClick={() => setCurrentView('results')}
+            collapsed={!isSidebarOpen}
+          />
+          <SidebarItem
             icon={<BarChart3 size={18} />}
             label="Usage"
             isActive={currentView === 'usage'}
             onClick={() => setCurrentView('usage')}
-            collapsed={!isSidebarOpen}
-          />
-          <SidebarItem
-            icon={<ClipboardList size={18} />}
-            label="Reports"
-            isActive={currentView === 'reports'}
-            onClick={() => setCurrentView('reports')}
-            collapsed={!isSidebarOpen}
-          />
-          <SidebarItem
-            icon={<MessageSquare size={18} />}
-            label="LoopTalk"
-            isActive={currentView === 'looptalk'}
-            onClick={() => setCurrentView('looptalk')}
             collapsed={!isSidebarOpen}
           />
         </nav>
@@ -180,7 +162,7 @@ const App: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-8 relative">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           {renderContent()}
         </div>
       </main>

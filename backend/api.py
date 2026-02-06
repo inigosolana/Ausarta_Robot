@@ -7,7 +7,7 @@ import os
 import re
 import asyncio
 from datetime import datetime
-from typing import Optional, Union
+from typing import Optional, Union, List
 from dotenv import load_dotenv
 from livekit import api
 
@@ -54,6 +54,29 @@ def init_database():
         )
     ''')
     
+    # NEW: Campaigns Tables
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS campaigns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name VARCHAR(100) NOT NULL,
+            agent_id INTEGER,
+            status VARCHAR(20) DEFAULT 'pending',
+            scheduled_time TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS campaign_leads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id INTEGER,
+            phone_number VARCHAR(20),
+            status VARCHAR(20) DEFAULT 'pending', -- pending, called, failed, completed
+            call_id INTEGER, -- ID de la encuesta asociada
+            FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
+        )
+    ''')
+
     # Tabla de configuración de AI
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ai_config (
@@ -208,6 +231,15 @@ class PromptTemplateModel(BaseModel):
     name: str
     description: str
     content: str
+    
+class CampaignModel(BaseModel):
+    name: str
+    agent_id: Optional[int] = 1
+    scheduled_time: Optional[str] = None # ISO format
+    status: str = "pending" # pending, running, completed, paused
+
+class CampaignLeadModel(BaseModel):
+    phone_number: str
 
 class InicioEncuesta(BaseModel):
     telefono: str
@@ -437,6 +469,61 @@ async def get_recent_calls():
         cursor.close()
         conn.close()
 
+@app.get("/api/results")
+async def get_all_results():
+    """Obtiene TODOS los resultados de encuestas"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT id, telefono, fecha, completada, 
+                   puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez, comentarios
+            FROM encuestas 
+            ORDER BY fecha DESC 
+        """)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.post("/api/campaigns")
+async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel]):
+    """Crea una nueva campaña con leads"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO campaigns (name, agent_id, status, scheduled_time) VALUES (?, ?, ?, ?)",
+                      (campaign.name, campaign.agent_id, campaign.status, campaign.scheduled_time))
+        campaign_id = cursor.lastrowid
+        
+        # Insert leads
+        for lead in leads:
+            cursor.execute("INSERT INTO campaign_leads (campaign_id, phone_number) VALUES (?, ?)",
+                          (campaign_id, lead.phone_number))
+        
+        conn.commit()
+        return {"status": "success", "campaign_id": campaign_id, "leads_count": len(leads)}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.get("/api/campaigns")
+async def get_campaigns():
+    """Lista las campañas"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM campaigns ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        cursor.close()
+        conn.close()
+
 @app.post("/api/calls/outbound")
 async def make_outbound_call(call_request: OutboundCallRequest):
     """
@@ -482,17 +569,21 @@ async def make_outbound_call(call_request: OutboundCallRequest):
         
         trunk_id = os.getenv("SIP_OUTBOUND_TRUNK_ID", "ST_UBZcusTkNdtH")
         
-        await lkapi.sip.create_sip_participant(
-            api.CreateSIPParticipantRequest(
-                room_name=sala,
-                sip_trunk_id=trunk_id,
-                sip_call_to=call_request.phoneNumber,
-                participant_identity="Cliente",
+        try:
+            await lkapi.sip.create_sip_participant(
+                api.CreateSIPParticipantRequest(
+                    room_name=sala,
+                    sip_trunk_id=trunk_id,
+                    sip_call_to=call_request.phoneNumber,
+                    participant_identity="Cliente",
+                )
             )
-        )
-        await lkapi.aclose()
-        
-        print("🚀 ¡Llamada en curso!")
+            print("🚀 ¡Llamada en curso!")
+        except Exception as e:
+            print(f"❌ Error SIP: {e}")
+            raise HTTPException(status_code=500, detail=f"Error iniciando SIP: {e}")
+        finally:
+            await lkapi.aclose()
         
         return {
             "status": "success",
@@ -557,7 +648,7 @@ async def guardar_encuesta(datos: FinEncuesta):
 
         cursor.execute(
             """UPDATE encuestas 
-               SET puntuacion_comercial=?, puntuacion_instalador=?, puntuacion_rapidez=?, comentarios=?, completada=1
+               SET puntuacion_comercial=?, puntuacion_instalador=?, puntuacion_rapidez=?, comentarios=?, completada=1, updated_at=CURRENT_TIMESTAMP
                WHERE id=?""",
             (clean_nota(datos.nota_comercial), clean_nota(datos.nota_instalador), clean_nota(datos.nota_rapidez), datos.comentarios, id_final)
         )
