@@ -54,6 +54,30 @@ def init_database():
         )
     ''')
     
+    # Tabla de configuración de AI
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ai_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            llm_provider VARCHAR(50) DEFAULT 'groq',
+            llm_model VARCHAR(100) DEFAULT 'llama-3.3-70b-versatile',
+            tts_provider VARCHAR(50) DEFAULT 'cartesia',
+            tts_model VARCHAR(100) DEFAULT 'sonic-3',
+            tts_voice VARCHAR(200) DEFAULT '6511153f-72f9-4314-a204-8d8d8afd646a',
+            stt_provider VARCHAR(50) DEFAULT 'deepgram',
+            stt_model VARCHAR(100) DEFAULT 'nova-3',
+            language VARCHAR(10) DEFAULT 'es',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Insertar configuración por defecto si no existe
+    cursor.execute('SELECT COUNT(*) FROM ai_config')
+    if cursor.fetchone()[0] == 0:
+        cursor.execute('''
+            INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language)
+            VALUES ('groq', 'llama-3.3-70b-versatile', 'cartesia', 'sonic-3', '6511153f-72f9-4314-a204-8d8d8afd646a', 'deepgram', 'nova-3', 'es')
+        ''')
+    
     # Crear índices
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_telefono ON encuestas(telefono)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_fecha ON encuestas(fecha)')
@@ -82,6 +106,16 @@ class TelephonyConfig(BaseModel):
     provider: str
     fromNumbers: str
     sipTrunkId: Optional[str] = None
+
+class AIConfig(BaseModel):
+    llm_provider: str = "groq"
+    llm_model: str = "llama-3.3-70b-versatile"
+    tts_provider: str = "cartesia"
+    tts_model: str = "sonic-3"
+    tts_voice: str = "6511153f-72f9-4314-a204-8d8d8afd646a"
+    stt_provider: str = "deepgram"
+    stt_model: str = "nova-3"
+    language: str = "es"
 
 class InicioEncuesta(BaseModel):
     telefono: str
@@ -139,6 +173,60 @@ async def save_telephony_config(config: TelephonyConfig):
     """Guarda la configuración de telefonía"""
     # Guardar en variables de entorno o DB
     return {"status": "success", "config": config}
+
+@app.get("/api/ai/config")
+async def get_ai_config():
+    """Obtiene la configuración de AI actual"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM ai_config ORDER BY id DESC LIMIT 1")
+        row = cursor.fetchone()
+        if row:
+            return {
+                "llm_provider": row[1],
+                "llm_model": row[2],
+                "tts_provider": row[3],
+                "tts_model": row[4],
+                "tts_voice": row[5],
+                "stt_provider": row[6],
+                "stt_model": row[7],
+                "language": row[8]
+            }
+        return {}
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.post("/api/ai/config")
+async def save_ai_config(config: AIConfig):
+    """Guarda la configuración de AI"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Actualizar o insertar
+        cursor.execute("SELECT COUNT(*) FROM ai_config")
+        if cursor.fetchone()[0] > 0:
+            cursor.execute('''
+                UPDATE ai_config 
+                SET llm_provider=?, llm_model=?, tts_provider=?, tts_model=?, 
+                    tts_voice=?, stt_provider=?, stt_model=?, language=?, updated_at=CURRENT_TIMESTAMP
+                WHERE id=1
+            ''', (config.llm_provider, config.llm_model, config.tts_provider, config.tts_model,
+                  config.tts_voice, config.stt_provider, config.stt_model, config.language))
+        else:
+            cursor.execute('''
+                INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (config.llm_provider, config.llm_model, config.tts_provider, config.tts_model,
+                  config.tts_voice, config.stt_provider, config.stt_model, config.language))
+        
+        conn.commit()
+        print(f"✅ Configuración de AI guardada: LLM={config.llm_provider}, TTS={config.tts_provider}, STT={config.stt_provider}")
+        return {"status": "success", "config": config}
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.post("/api/calls/outbound")
 async def make_outbound_call(call_request: OutboundCallRequest):
