@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, X, ChevronDown, Phone, Play } from 'lucide-react';
 
-const API_URL = 'http://localhost:8001/api';
+// API URL - En producción Docker usa nginx proxy, en desarrollo usa localhost
+const API_URL = import.meta.env.VITE_API_URL || window.location.origin + '/api' || 'http://localhost:8001/api';
 
 interface VoiceAgentsViewProps {
   onStartCall: () => void;

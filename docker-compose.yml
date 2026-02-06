@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # Backend (API + LiveKit Agent)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ausarta-backend
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      # LiveKit
+      - LIVEKIT_URL=${LIVEKIT_URL}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+
+      # SIP
+      - SIP_OUTBOUND_TRUNK_ID=${SIP_OUTBOUND_TRUNK_ID}
+
+      # AI Providers
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
+      - CARTESIA_API_KEY=${CARTESIA_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+      # Database
+      - DB_HOST=${DB_HOST:-mysql}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+
+      # Bridge
+      - BRIDGE_SERVER_URL=http://0.0.0.0:8001
+    networks:
+      - ausarta-network
+    depends_on:
+      - mysql
+    volumes:
+      - ./backend:/app
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (React + Nginx)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ausarta-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - ausarta-network
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://backend:8001
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: ausarta-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME}
+      - MYSQL_USER=${DB_USER}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - ausarta-network
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  ausarta-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+    driver: local
