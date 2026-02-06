@@ -36,7 +36,12 @@ DB_PATH = os.getenv('DB_PATH', '/app/data/encuestas.db')
 
 def get_config():
     """Lee la configuración de la base de datos"""
+    print("🔍 [Agent] Intentando leer configuración de BD...")
     try:
+        if not os.path.exists(DB_PATH):
+            print(f"⚠️ [Agent] BD no encontrada en {DB_PATH}, usando defaults")
+            return {}, {}
+
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -54,9 +59,11 @@ def get_config():
         ai_config = dict(ai_row) if ai_row else {}
         agent_config = dict(agent_row) if agent_row else {}
         
+        print(f"✅ [Agent] Config leída: Model={ai_config.get('llm_model', 'default')}, Agent={agent_config.get('name', 'default')}")
         return ai_config, agent_config
     except Exception as e:
-        logger.error(f"Error leyendo config DB: {e}")
+        logger.error(f"❌ [Agent] Error leyendo config DB: {e}")
+        print(f"❌ [Agent] Error crítico DB: {e}")
         return {}, {}
 
 class DefaultAgent(Agent):
@@ -119,6 +126,8 @@ server = AgentServer(setup_fnc=prewarm)
 
 @server.rtc_session(agent_name="Dakota-1ef9")
 async def entrypoint(ctx: JobContext):
+    print(f"⚡ [Agent] ¡Job recibido! Sala: {ctx.room.name}")
+    
     # Cargar configuración dinámica
     ai_config, agent_config = get_config()
     
@@ -131,32 +140,42 @@ async def entrypoint(ctx: JobContext):
     instructions = agent_config.get('instructions', "Eres un asistente de encuestas de calidad de Ausarta.")
     greeting = agent_config.get('greeting', "Hola, soy Dakota de Ausarta.")
 
-    session = AgentSession(
-        stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
-        # Configuración Groq (LLM)
-        llm=openai.LLM(
-            model=llm_model,
-            base_url="https://api.groq.com/openai/v1",
-            api_key=os.getenv("GROQ_API_KEY")
-        ),
-        tts=inference.TTS(
-            model=f"cartesia/{tts_model}",
-            voice=tts_voice,
-            language="es"
-        ),
-        vad=ctx.proc.userdata["vad"],
-        preemptive_generation=True,
-    )
+    print(f"🎤 [Agent] Inicializando sesión con: LLM={llm_model}, TTS={tts_model}")
 
-    await session.start(
-        agent=DefaultAgent(instructions=instructions, greeting=greeting),
-        room=ctx.room,
-    )
+    try:
+        session = AgentSession(
+            stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
+            # Configuración Groq (LLM)
+            llm=openai.LLM(
+                model=llm_model,
+                base_url="https://api.groq.com/openai/v1",
+                api_key=os.getenv("GROQ_API_KEY")
+            ),
+            tts=inference.TTS(
+                model=f"cartesia/{tts_model}",
+                voice=tts_voice,
+                language="es"
+            ),
+            vad=ctx.proc.userdata["vad"],
+            preemptive_generation=True,
+        )
 
-    background_audio = BackgroundAudioPlayer(
-        ambient_sound=AudioConfig(BuiltinAudioClip.OFFICE_AMBIENCE, volume=0.1),
-    )
-    await background_audio.start(room=ctx.room, agent_session=session)
+        print("🚀 [Agent] Conectando a la sala...")
+        await session.start(
+            agent=DefaultAgent(instructions=instructions, greeting=greeting),
+            room=ctx.room,
+        )
+        print("✅ [Agent] Conectado y listo para hablar!")
+
+        background_audio = BackgroundAudioPlayer(
+            ambient_sound=AudioConfig(BuiltinAudioClip.OFFICE_AMBIENCE, volume=0.1),
+        )
+        await background_audio.start(room=ctx.room, agent_session=session)
+        print("🎵 [Agent] Audio de fondo iniciado")
+        
+    except Exception as e:
+        print(f"❌ [Agent] ERROR FATAL en entrypoint: {e}")
+        logger.error(f"Error starting session: {e}", exc_info=True)
 
 if __name__ == "__main__":
     cli.run_app(server)
