@@ -88,6 +88,7 @@ class DefaultAgent(Agent):
         self, context: RunContext, id_encuesta: int, nota_comercial: int, nota_instalador: int, nota_rapidez: int, comentarios: Optional[str] = None
     ) -> str | None:
         """Guarda los datos de la encuesta recibidos del usuario."""
+        print(f"🛠️ [Tool] Ejecutando guardar_encuesta: ID={id_encuesta}, Notas=[{nota_comercial}, {nota_instalador}, {nota_rapidez}]")
         context.disallow_interruptions()
         url = f"{self.server_url}/guardar-encuesta"
         payload = {
@@ -100,8 +101,11 @@ class DefaultAgent(Agent):
         try:
             session = utils.http_context.http_session()
             async with session.post(url, timeout=aiohttp.ClientTimeout(total=10), json=payload) as resp:
-                return await resp.text()
+                resultado = await resp.text()
+                print(f"✅ [Tool] Resultado guardar_encuesta: {resultado}")
+                return resultado
         except Exception as e:
+            print(f"❌ [Tool] Error en guardar_encuesta: {e}")
             raise ToolError(f"Error DB: {e}")
 
     @function_tool(name="finalizar_llamada")
@@ -109,14 +113,18 @@ class DefaultAgent(Agent):
         self, context: RunContext, nombre_sala: str
     ) -> str | None:
         """Corta la llamada inmediatamente."""
+        print(f"🛠️ [Tool] Ejecutando finalizar_llamada: Sala={nombre_sala}")
         context.disallow_interruptions()
         url = f"{self.server_url}/colgar"
         payload = {"nombre_sala": nombre_sala}
         try:
             session = utils.http_context.http_session()
             async with session.post(url, timeout=aiohttp.ClientTimeout(total=10), json=payload) as resp:
-                return await resp.text()
+                resultado = await resp.text()
+                print(f"✅ [Tool] Resultado finalizar_llamada: {resultado}")
+                return resultado
         except Exception as e:
+            print(f"❌ [Tool] Error en finalizar_llamada: {e}")
             raise ToolError(f"Error Colgar: {e}")
 
 def prewarm(proc: JobProcess):
