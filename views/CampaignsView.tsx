@@ -49,9 +49,16 @@ const CampaignsView: React.FC = () => {
 
   const loadAgents = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/agents`); // Returns list of agents
-      if (res.ok) setAgents(await res.json());
-    } catch (e) { console.error(e); }
+      const res = await fetch(`${API_URL}/api/agents`);
+      if (res.ok) {
+        const data = await res.json();
+        setAgents(data);
+        // Auto-select if only one agent exists
+        if (data.length > 0) {
+          setSelectedAgent(data[0].id.toString());
+        }
+      }
+    } catch (e) { console.error("Error loading agents:", e); }
   };
 
   const downloadTemplate = () => {
