@@ -80,8 +80,11 @@ const DashboardView: React.FC = () => {
         <div className="space-y-8 animate-fade-in">
             {/* Header */}
             <div>
-                <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-                <p className="text-gray-500">Resumen de actividad de encuestas</p>
+                <div className="flex items-center gap-3">
+                    <img src="/ausarta.png" alt="Logo" className="h-10 w-auto object-contain" />
+                    <h2 className="text-3xl font-bold text-gray-900">Dashboard</h2>
+                </div>
+                <p className="text-gray-500 mt-1">Resumen de actividad de encuestas</p>
             </div>
 
             {/* KPI Cards */}

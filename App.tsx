@@ -62,9 +62,12 @@ const App: React.FC = () => {
       {/* Sidebar */}
       <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} border-r border-gray-100 bg-white flex flex-col transition-all duration-300 ease-in-out`}>
         <div className="p-4 flex items-center justify-between border-b border-gray-50">
-          <div className={`flex items-center gap-2 font-bold text-gray-800 overflow-hidden ${!isSidebarOpen && 'hidden'}`}>
-            <span className="text-xl tracking-tight">Ausarta Robot</span>
-            <span className="text-[10px] text-gray-400 font-normal self-end mb-1">v1.11.2</span>
+          <div className={`flex items-center gap-3 font-bold text-gray-800 overflow-hidden ${!isSidebarOpen && 'hidden'}`}>
+            <img src="/ausarta.png" alt="Ausarta Logo" className="h-8 w-auto object-contain" />
+            <div className="flex flex-col">
+              <span className="text-lg leading-none tracking-tight">Ausarta</span>
+              <span className="text-[10px] text-gray-400 font-normal">Voice AI v1.12</span>
+            </div>
           </div>
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1 hover:bg-gray-50 rounded text-gray-400">
             {isSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
