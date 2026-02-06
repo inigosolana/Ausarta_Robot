@@ -470,7 +470,7 @@ async def make_outbound_call(call_request: OutboundCallRequest):
             await lkapi.agent_dispatch.create_dispatch(
                 api.CreateAgentDispatchRequest(
                     room=sala,
-                    agent_name=call_request.agentName,
+                    agent_name="Dakota-1ef9", # Nombre interno del worker registrado en agent.py
                 )
             )
             print(f"✅ Agente despachado correctamente")
