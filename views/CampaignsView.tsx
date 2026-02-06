@@ -23,7 +23,7 @@ const CampaignsView: React.FC = () => {
   // Form State
   const [name, setName] = useState('');
   const [selectedAgent, setSelectedAgent] = useState('');
-  const [dataSource, setDataSource] = useState<'csv' | 'manual'>('csv');
+  const [dataSource, setDataSource] = useState<'csv' | 'manual' | 'api'>('csv');
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [manualNumbers, setManualNumbers] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
@@ -85,7 +85,7 @@ const CampaignsView: React.FC = () => {
           .map(n => n.trim())
           .filter(n => n.length > 5)
           .map(n => ({ phone_number: n }));
-      } else if (csvFile) {
+      } else if (dataSource === 'csv' && csvFile) {
         const text = await csvFile.text();
         const lines = text.split('\n');
         // Simple CSV parser assuming first column or header "phone_number"
@@ -96,9 +96,12 @@ const CampaignsView: React.FC = () => {
             return { phone_number: parts[0].trim() };
           })
           .filter(l => l.phone_number.length > 5);
+      } else if (dataSource === 'api') {
+        // API campaigns start with 0 leads
+        leads = [];
       }
 
-      if (leads.length === 0) {
+      if (dataSource !== 'api' && leads.length === 0) {
         throw new Error("No valid phone numbers found");
       }
 
@@ -112,7 +115,7 @@ const CampaignsView: React.FC = () => {
             name,
             agent_id: parseInt(selectedAgent),
             scheduled_time: scheduledTime || null,
-            status: 'pending'
+            status: dataSource === 'api' ? 'active' : 'pending'
           },
           leads
         })
@@ -192,11 +195,12 @@ const CampaignsView: React.FC = () => {
               <div className="relative">
                 <select
                   value={dataSource}
-                  onChange={(e) => setDataSource(e.target.value as 'csv' | 'manual')}
+                  onChange={(e) => setDataSource(e.target.value as 'csv' | 'manual' | 'api')}
                   className="w-full h-10 px-4 pr-10 appearance-none bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer"
                 >
                   <option value="csv">CSV File</option>
                   <option value="manual">Manual Entry</option>
+                  <option value="api">API Webhook</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
               </div>
@@ -240,6 +244,22 @@ const CampaignsView: React.FC = () => {
                   className="w-full h-32 px-4 py-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-mono"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">Enter one phone number per line.</p>
+              </div>
+            )}
+
+            {/* API INFO */}
+            {dataSource === 'api' && (
+              <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl space-y-2">
+                <div className="flex items-center gap-2 text-blue-800 font-semibold text-sm">
+                  <CheckCircle size={16} />
+                  <span>API Trigger Configured</span>
+                </div>
+                <p className="text-xs text-blue-600 leading-relaxed">
+                  Upon creation, you will receive a unique Webhook URL. You can send <code>POST</code> requests to this endpoint with a <code>phone_number</code> to instantly trigger calls for this campaign.
+                </p>
+                <div className="mt-2 bg-white p-2 rounded border border-blue-100 font-mono text-xs text-gray-600">
+                  POST {API_URL}/api/campaigns/{'{id}'}/trigger
+                </div>
               </div>
             )}
 
@@ -330,7 +350,7 @@ const CampaignsView: React.FC = () => {
                   <td className="px-6 py-4">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize 
                         ${c.status === 'completed' ? 'bg-green-100 text-green-800' :
-                        c.status === 'running' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                        c.status === 'running' || c.status === 'active' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
                       {c.status}
                     </span>
                   </td>
