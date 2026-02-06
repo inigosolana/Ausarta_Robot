@@ -5,6 +5,5 @@ livekit-plugins-openai
 livekit-plugins-deepgram
 livekit-plugins-cartesia
 livekit-plugins-silero
-mysql-connector-python
 python-dotenv
 requests

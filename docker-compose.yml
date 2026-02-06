@@ -25,20 +25,16 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
 
-      # Database
-      - DB_HOST=${DB_HOST:-mysql}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME}
+      # Database SQLite
+      - DB_PATH=/app/data/encuestas.db
 
       # Bridge
       - BRIDGE_SERVER_URL=http://0.0.0.0:8001
     networks:
       - ausarta-network
-    depends_on:
-      - mysql
     volumes:
       - ./backend:/app
+      - sqlite-data:/app/data
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8001/" ]
       interval: 30s
@@ -66,33 +62,10 @@ services:
       timeout: 10s
       retries: 3
 
-  # MySQL Database
-  mysql:
-    image: mysql:8.0
-    container_name: ausarta-mysql
-    restart: unless-stopped
-    ports:
-      - "3306:3306"
-    environment:
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-      - MYSQL_DATABASE=${DB_NAME}
-      - MYSQL_USER=${DB_USER}
-      - MYSQL_PASSWORD=${DB_PASSWORD}
-    volumes:
-      - mysql-data:/var/lib/mysql
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
-    networks:
-      - ausarta-network
-    healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
 networks:
   ausarta-network:
     driver: bridge
 
 volumes:
-  mysql-data:
+  sqlite-data:
     driver: local

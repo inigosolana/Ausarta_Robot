@@ -25,13 +25,11 @@ DEEPGRAM_API_KEY=tu_deepgram_api_key
 CARTESIA_API_KEY=tu_cartesia_api_key
 GROQ_API_KEY=tu_groq_api_key
 OPENAI_API_KEY=tu_openai_api_key
-DB_USER=ausarta_user
-DB_PASSWORD=TuPasswordSeguro123!
-DB_NAME=encuestas_ausarta
-MYSQL_ROOT_PASSWORD=RootPasswordMuySeguro123!
 ```
 
-**💡 Tip**: Copia las credenciales desde tu archivo `.env` local
+**💡 Tip**: Copia las credenciales desde tu archivo `backend/.env` local
+
+**ℹ️ Nota**: Ya NO necesitas variables de MySQL. Ahora usamos SQLite (base de datos local en archivo)
 
 ### 3️⃣ Deploy
 
@@ -39,10 +37,11 @@ MYSQL_ROOT_PASSWORD=RootPasswordMuySeguro123!
 
 ### 4️⃣ Verificar
 
-**Containers** →  Deberías ver 3 contenedores:
+**Containers** →  Deberías ver 2 contenedores:
 - ✅ `ausarta-frontend` (puerto 80)
-- ✅ `ausarta-backend` (puerto 8001) 
-- ✅ `ausarta-mysql` (puerto 3306)
+- ✅ `ausarta-backend` (puerto 8001)
+
+**ℹ️ Nota**: Ya no hay contenedor MySQL. Los datos se guardan en SQLite dentro del backend.
 
 ### 5️⃣ Acceder
 
@@ -55,9 +54,9 @@ MYSQL_ROOT_PASSWORD=RootPasswordMuySeguro123!
 
 - [ ] Portainer instalado y corriendo
 - [ ] Repositorio GitHub accesible
-- [ ] Variables de entorno configuradas
+- [ ] Variables de entorno configuradas (solo AI y LiveKit)
 - [ ] Stack desplegado sin errores
-- [ ] 3 contenedores en estado "running"
+- [ ] 2 contenedores en estado "running"
 - [ ] Frontend carga correctamente
 - [ ] Backend API responde en /docs
 
