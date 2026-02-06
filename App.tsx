@@ -1,17 +1,17 @@
 
 import React, { useState } from 'react';
-import { 
-  LayoutDashboard, 
-  Mic2, 
-  Megaphone, 
-  Zap, 
-  Cpu, 
-  PhoneCall, 
-  Wrench, 
-  FileText, 
-  Code2, 
-  BarChart3, 
-  ClipboardList, 
+import {
+  LayoutDashboard,
+  Mic2,
+  Megaphone,
+  Zap,
+  Cpu,
+  PhoneCall,
+  Wrench,
+  FileText,
+  Code2,
+  BarChart3,
+  ClipboardList,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
@@ -26,9 +26,10 @@ import ModelsView from './views/ModelsView';
 import CampaignsView from './views/CampaignsView';
 import VoiceAgentsView from './views/VoiceAgentsView';
 import LiveCallView from './views/LiveCallView';
+import DashboardView from './views/DashboardView';
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<ViewState>('telephony');
+  const [currentView, setCurrentView] = useState<ViewState>('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCalling, setIsCalling] = useState(false);
 
@@ -43,13 +44,7 @@ const App: React.FC = () => {
       case 'voice-agents':
         return <VoiceAgentsView onStartCall={() => setIsCalling(true)} />;
       case 'overview':
-        return (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
-            <LayoutDashboard size={64} className="mb-4 opacity-20" />
-            <h2 className="text-xl font-medium">Dashboard Overview</h2>
-            <p>Welcome to Ausarta Robot v1.11.2</p>
-          </div>
-        );
+        return <DashboardView />;
       default:
         return (
           <div className="flex items-center justify-center h-full text-gray-400">
@@ -81,97 +76,97 @@ const App: React.FC = () => {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-          <SidebarItem 
-            icon={<LayoutDashboard size={18} />} 
-            label="Overview" 
-            isActive={currentView === 'overview'} 
-            onClick={() => setCurrentView('overview')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<LayoutDashboard size={18} />}
+            label="Overview"
+            isActive={currentView === 'overview'}
+            onClick={() => setCurrentView('overview')}
+            collapsed={!isSidebarOpen}
           />
-          
+
           <div className={`mt-6 mb-2 px-3 text-[10px] uppercase tracking-wider font-bold text-gray-400 ${!isSidebarOpen && 'hidden'}`}>
             Build
           </div>
-          <SidebarItem 
-            icon={<Mic2 size={18} />} 
-            label="Voice Agents" 
-            isActive={currentView === 'voice-agents'} 
-            onClick={() => setCurrentView('voice-agents')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<Mic2 size={18} />}
+            label="Voice Agents"
+            isActive={currentView === 'voice-agents'}
+            onClick={() => setCurrentView('voice-agents')}
+            collapsed={!isSidebarOpen}
           />
-          <SidebarItem 
-            icon={<Megaphone size={18} />} 
-            label="Campaigns" 
-            isActive={currentView === 'campaigns'} 
-            onClick={() => setCurrentView('campaigns')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<Megaphone size={18} />}
+            label="Campaigns"
+            isActive={currentView === 'campaigns'}
+            onClick={() => setCurrentView('campaigns')}
+            collapsed={!isSidebarOpen}
           />
-          <SidebarItem 
-            icon={<Zap size={18} />} 
-            label="Automation" 
-            isActive={currentView === 'automation'} 
-            onClick={() => setCurrentView('automation')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<Zap size={18} />}
+            label="Automation"
+            isActive={currentView === 'automation'}
+            onClick={() => setCurrentView('automation')}
+            collapsed={!isSidebarOpen}
           />
-          <SidebarItem 
-            icon={<Cpu size={18} />} 
-            label="Models" 
-            isActive={currentView === 'models'} 
-            onClick={() => setCurrentView('models')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<Cpu size={18} />}
+            label="Models"
+            isActive={currentView === 'models'}
+            onClick={() => setCurrentView('models')}
+            collapsed={!isSidebarOpen}
           />
-          <SidebarItem 
-            icon={<PhoneCall size={18} />} 
-            label="Telephony" 
-            isActive={currentView === 'telephony'} 
-            onClick={() => setCurrentView('telephony')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<PhoneCall size={18} />}
+            label="Telephony"
+            isActive={currentView === 'telephony'}
+            onClick={() => setCurrentView('telephony')}
+            collapsed={!isSidebarOpen}
           />
-          <SidebarItem 
-            icon={<Wrench size={18} />} 
-            label="Tools" 
-            isActive={currentView === 'tools'} 
-            onClick={() => setCurrentView('tools')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<Wrench size={18} />}
+            label="Tools"
+            isActive={currentView === 'tools'}
+            onClick={() => setCurrentView('tools')}
+            collapsed={!isSidebarOpen}
           />
-          <SidebarItem 
-            icon={<FileText size={18} />} 
-            label="Files" 
-            isActive={currentView === 'files'} 
-            onClick={() => setCurrentView('files')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<FileText size={18} />}
+            label="Files"
+            isActive={currentView === 'files'}
+            onClick={() => setCurrentView('files')}
+            collapsed={!isSidebarOpen}
           />
-          <SidebarItem 
-            icon={<Code2 size={18} />} 
-            label="Developers" 
-            isActive={currentView === 'developers'} 
-            onClick={() => setCurrentView('developers')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<Code2 size={18} />}
+            label="Developers"
+            isActive={currentView === 'developers'}
+            onClick={() => setCurrentView('developers')}
+            collapsed={!isSidebarOpen}
           />
 
           <div className={`mt-6 mb-2 px-3 text-[10px] uppercase tracking-wider font-bold text-gray-400 ${!isSidebarOpen && 'hidden'}`}>
             Observe
           </div>
-          <SidebarItem 
-            icon={<BarChart3 size={18} />} 
-            label="Usage" 
-            isActive={currentView === 'usage'} 
-            onClick={() => setCurrentView('usage')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<BarChart3 size={18} />}
+            label="Usage"
+            isActive={currentView === 'usage'}
+            onClick={() => setCurrentView('usage')}
+            collapsed={!isSidebarOpen}
           />
-          <SidebarItem 
-            icon={<ClipboardList size={18} />} 
-            label="Reports" 
-            isActive={currentView === 'reports'} 
-            onClick={() => setCurrentView('reports')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<ClipboardList size={18} />}
+            label="Reports"
+            isActive={currentView === 'reports'}
+            onClick={() => setCurrentView('reports')}
+            collapsed={!isSidebarOpen}
           />
-          <SidebarItem 
-            icon={<MessageSquare size={18} />} 
-            label="LoopTalk" 
-            isActive={currentView === 'looptalk'} 
-            onClick={() => setCurrentView('looptalk')} 
-            collapsed={!isSidebarOpen} 
+          <SidebarItem
+            icon={<MessageSquare size={18} />}
+            label="LoopTalk"
+            isActive={currentView === 'looptalk'}
+            onClick={() => setCurrentView('looptalk')}
+            collapsed={!isSidebarOpen}
           />
         </nav>
 
