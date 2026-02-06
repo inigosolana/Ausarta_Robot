@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import mysql.connector
+import sqlite3
 import os
 import re
 import asyncio
@@ -24,14 +24,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CONEXIÓN DB ---
+# --- CONEXIÓN DB SQLite ---
+DB_PATH = os.getenv('DB_PATH', '/app/data/encuestas.db')
+
 def get_db_connection():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        user=os.getenv('DB_USER', 'ausarta_user'),
-        password=os.getenv('DB_PASSWORD', 'Noruega.15'),
-        database=os.getenv('DB_NAME', 'encuestas_ausarta')
-    )
+    """Obtiene conexión a SQLite"""
+    # Asegurar que el directorio existe
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_database():
+    """Inicializa la base de datos SQLite si no existe"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS encuestas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telefono VARCHAR(20) NOT NULL,
+            fecha DATETIME NOT NULL,
+            completada INTEGER DEFAULT 0,
+            puntuacion_comercial INTEGER DEFAULT NULL,
+            puntuacion_instalador INTEGER DEFAULT NULL,
+            puntuacion_rapidez INTEGER DEFAULT NULL,
+            comentarios TEXT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Crear índices
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_telefono ON encuestas(telefono)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_fecha ON encuestas(fecha)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_completada ON encuestas(completada)')
+    
+    conn.commit()
+    conn.close()
+    print("✅ Base de datos SQLite inicializada correctamente")
+
+# Inicializar BD al arrancar
+init_database()
 
 # --- MODELOS PYDANTIC ---
 class VoiceAgentCreate(BaseModel):
@@ -178,7 +212,7 @@ async def iniciar_encuesta(datos: InicioEncuesta):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO encuestas (telefono, fecha, completada) VALUES (%s, %s, 0)", (datos.telefono, datetime.now()))
+        cursor.execute("INSERT INTO encuestas (telefono, fecha, completada) VALUES (?, ?, 0)", (datos.telefono, datetime.now()))
         conn.commit()
         nuevo_id = cursor.lastrowid
         print(f"✅ Ficha creada con ID: {nuevo_id} (Esperando a la IA...)")
@@ -223,8 +257,8 @@ async def guardar_encuesta(datos: FinEncuesta):
 
         cursor.execute(
             """UPDATE encuestas 
-               SET puntuacion_comercial=%s, puntuacion_instalador=%s, puntuacion_rapidez=%s, comentarios=%s, completada=1
-               WHERE id=%s""",
+               SET puntuacion_comercial=?, puntuacion_instalador=?, puntuacion_rapidez=?, comentarios=?, completada=1
+               WHERE id=?""",
             (clean_nota(datos.nota_comercial), clean_nota(datos.nota_instalador), clean_nota(datos.nota_rapidez), datos.comentarios, id_final)
         )
         conn.commit()
