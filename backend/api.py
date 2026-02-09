@@ -356,7 +356,7 @@ async def get_recent_calls():
         results.append({
             "id": row['id'],
             "phone": row['telefono'],
-            "date": f"{row['fecha']}Z",
+            "date": f"{row['fecha']}Z" if not str(row['fecha']).endswith('Z') else row['fecha'],
             "status": "completed" if row['completada'] else "pending",
             "scores": {
                 "comercial": row['puntuacion_comercial'],
@@ -530,9 +530,14 @@ async def get_campaigns():
         elif d['pending_leads'] == 0:
             d['status'] = 'completed'
         
-        # Corregir HORA: Añadir Z para indicar UTC
-        if d['created_at']: d['created_at'] = f"{d['created_at']}Z"
-        if d['scheduled_time']: d['scheduled_time'] = f"{d['scheduled_time']}Z"
+        # Corregir HORA: Asegurar formato ISO con Z si no la tiene
+        if d.get('created_at') and not str(d['created_at']).endswith('Z'):
+            d['created_at'] = f"{d['created_at']}Z"
+        if d.get('scheduled_time') and not str(d['scheduled_time']).endswith('Z'):
+            # Si viene del frontend como local (sin Z), NO le añadimos Z aquí 
+            # porque el navegador la interpretaría como UTC y sumaría el desfase.
+            # Solo añadimos Z si estamos seguros de que es UTC.
+            pass # Dejamos que el frontend maneje la interpretación local si no hay Z
         
         results.append(d)
         
@@ -572,8 +577,11 @@ async def get_campaign(campaign_id: int):
         camp_dict['status'] = 'completed'
 
     # Logic HORA corregida
-    if camp_dict['created_at']: camp_dict['created_at'] = f"{camp_dict['created_at']}Z"
-    if camp_dict['scheduled_time']: camp_dict['scheduled_time'] = f"{camp_dict['scheduled_time']}Z"
+    if camp_dict.get('created_at') and not str(camp_dict['created_at']).endswith('Z'):
+        camp_dict['created_at'] = f"{camp_dict['created_at']}Z"
+    # scheduled_time lo dejamos tal cual venga de la DB para que el browser no asuma UTC si no tiene Z
+    if camp_dict.get('scheduled_time') and not str(camp_dict['scheduled_time']).endswith('Z'):
+        pass 
 
     return {"campaign": camp_dict, "leads": [dict(l) for l in leads]}
 
@@ -660,7 +668,8 @@ async def get_results():
     results = []
     for row in rows:
         d = dict(row)
-        if d['fecha']: d['fecha'] = f"{d['fecha']}Z"
+        if d.get('fecha') and not str(d['fecha']).endswith('Z'):
+            d['fecha'] = f"{d['fecha']}Z"
         results.append(d)
     return results
 
@@ -747,8 +756,9 @@ async def iniciar_encuesta(datos: InicioEncuesta):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # Usamos UTC para que el frontend (con Z) lo muestre bien en hora local
         cursor.execute("INSERT INTO encuestas (telefono, nombre_cliente, fecha, completada) VALUES (?, ?, ?, 0)", 
-                      (datos.telefono, datos.nombre_cliente, datetime.now()))
+                      (datos.telefono, datos.nombre_cliente, datetime.utcnow()))
         conn.commit()
         nuevo_id = cursor.lastrowid
         print(f"✅ Ficha creada con ID: {nuevo_id}")
@@ -921,14 +931,15 @@ async def process_campaigns():
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            now = datetime.now().isoformat()
+            # Usamos UTC para comparar con lo que viene del frontend (toISOString)
+            now = datetime.utcnow().isoformat()
             
             # Buscar campañas que están pendientes y (no tienen hora O su hora ya pasó)
             cursor.execute("""
                 SELECT * FROM campaigns 
                 WHERE status = 'pending' 
-                AND (scheduled_time IS NULL OR scheduled_time <= ?)
-            """, (now,))
+                AND (scheduled_time IS NULL OR scheduled_time <= ? OR scheduled_time <= ?)
+            """, (now, now + "Z"))
             
             pending_campaigns = cursor.fetchall()
             

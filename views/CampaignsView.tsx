@@ -48,7 +48,13 @@ export function CampaignsView() {
   const openEditModal = (camp: Campaign) => {
     setEditingCampaign(camp);
     setEditName(camp.name);
-    setEditTime(camp.scheduled_time ? new Date(camp.scheduled_time).toISOString().slice(0, 16) : "");
+    if (camp.scheduled_time) {
+      const date = new Date(camp.scheduled_time);
+      const localISO = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      setEditTime(localISO);
+    } else {
+      setEditTime("");
+    }
   };
 
   const handleUpdateCampaign = async () => {
@@ -206,7 +212,7 @@ export function CampaignsView() {
         campaign: {
           name,
           agent_id: selectedAgent,
-          scheduled_time: scheduledTime || null,
+          scheduled_time: scheduledTime ? new Date(scheduledTime).toISOString() : null,
           status: 'pending'
         },
         leads
