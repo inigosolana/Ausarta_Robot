@@ -1,13 +1,26 @@
-
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Upload, ChevronDown, ChevronRight, Download, FileText, CheckCircle, Clock } from 'lucide-react';
+import {
+  Megaphone, Plus, Upload, Calendar, Clock, CheckCircle2,
+  AlertCircle, History, Play, Pause, Trash2, Phone, X
+} from 'lucide-react';
 
 interface Campaign {
   id: number;
   name: string;
-  status: string;
+  status: string; // pending, running, completed, paused
+  scheduled_time: string | null;
   created_at: string;
-  agent_id: number;
+  total_leads?: number;
+  called_leads?: number;
+  failed_leads?: number;
+  pending_leads?: number;
+}
+
+interface Lead {
+  id: number;
+  phone_number: string;
+  status: string; // pending, called, failed
+  updated_at?: string;
 }
 
 interface Agent {
@@ -15,21 +28,24 @@ interface Agent {
   name: string;
 }
 
-const CampaignsView: React.FC = () => {
-  const [isCreating, setIsCreating] = useState(false);
+export function CampaignsView() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Selected Campaign Details
+  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
+  const [campaignLeads, setCampaignLeads] = useState<Lead[]>([]);
+  const [showDetails, setShowDetails] = useState(false);
 
   // Form State
   const [name, setName] = useState('');
   const [selectedAgent, setSelectedAgent] = useState('');
-  const [dataSource, setDataSource] = useState<'csv' | 'manual' | 'api'>('csv');
+  const [dataSource, setDataSource] = useState<'csv' | 'api'>('csv');
   const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [manualNumbers, setManualNumbers] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
   const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
 
@@ -38,266 +54,350 @@ const CampaignsView: React.FC = () => {
     loadAgents();
   }, []);
 
-  const loadCampaigns = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/campaigns`);
-      if (res.ok) setCampaigns(await res.json());
-    } catch (e) {
-      console.error("Error loading campaigns", e);
-    }
-  };
-
   const loadAgents = async () => {
     try {
       const res = await fetch(`${API_URL}/api/agents`);
       if (res.ok) {
         const data = await res.json();
         setAgents(data);
-        // Auto-select first agent always to ensure UI shows it
-        if (data.length > 0) {
-          setSelectedAgent(String(data[0].id));
-        }
+        if (data.length > 0) setSelectedAgent(data[0].id);
       }
-    } catch (e) { console.error("Error loading agents:", e); }
+    } catch (e) {
+      console.error("Error loading agents:", e);
+    }
   };
 
-  const downloadTemplate = () => {
-    const csvContent = "phone_number\n+34600112233\n+34611223344";
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", "campaign_template.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const loadCampaigns = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/campaigns`);
+      if (res.ok) {
+        const data = await res.json();
+        setCampaigns(data);
+      }
+    } catch (e) {
+      console.error("Error loading campaigns:", e);
+    }
+  };
+
+  const loadCampaignDetails = async (campaign: Campaign) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/campaigns/${campaign.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedCampaign(data.campaign); // Update campaign info especially stats
+        setCampaignLeads(data.leads);
+        setShowDetails(true);
+      }
+    } catch (e) {
+      alert("Error loading details");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const parseCSV = (file: File): Promise<string[]> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target?.result as string;
+        const lines = text.split('\n');
+        const phones: string[] = [];
+        lines.forEach(line => {
+          const phone = line.trim().replace(/[^0-9+]/g, '');
+          if (phone.length > 5) phones.push(phone);
+        });
+        resolve(phones);
+      };
+      reader.onerror = reject;
+      reader.readAsText(file);
+    });
   };
 
   const handleCreate = async () => {
+    if (!name || !selectedAgent) {
+      setError('Please fill required fields');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
     try {
       let leads: { phone_number: string }[] = [];
 
-      if (dataSource === 'manual') {
-        leads = manualNumbers.split('\n')
-          .map(n => n.trim())
-          .filter(n => n.length > 5)
-          .map(n => ({ phone_number: n }));
-      } else if (dataSource === 'csv' && csvFile) {
-        const text = await csvFile.text();
-        const lines = text.split('\n');
-        // Simple CSV parser assuming first column or header "phone_number"
-        leads = lines
-          .filter(line => line.trim() !== '' && !line.includes('phone_number')) // Skip header/empty
-          .map(line => {
-            const parts = line.split(',');
-            return { phone_number: parts[0].trim() };
-          })
-          .filter(l => l.phone_number.length > 5);
-      } else if (dataSource === 'api') {
-        // API campaigns start with 0 leads
-        leads = [];
+      if (dataSource === 'csv' && csvFile) {
+        const phones = await parseCSV(csvFile);
+        leads = phones.map(p => ({ phone_number: p }));
+      } else if (dataSource === 'csv' && !csvFile) {
+        throw new Error("Please upload a CSV file");
       }
 
-      if (dataSource !== 'api' && leads.length === 0) {
-        throw new Error("No valid phone numbers found");
-      }
-
-      if (!selectedAgent) throw new Error("Please select an agent");
+      const payload = {
+        campaign: {
+          name,
+          agent_id: selectedAgent,
+          scheduled_time: scheduledTime || null, // If empty string, send null
+          status: 'pending'
+        },
+        leads
+      };
 
       const res = await fetch(`${API_URL}/api/campaigns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          campaign: {
-            name,
-            agent_id: parseInt(selectedAgent),
-            scheduled_time: scheduledTime || null,
-            status: dataSource === 'api' ? 'active' : 'pending'
-          },
-          leads
-        })
+        body: JSON.stringify(payload)
       });
 
-      if (!res.ok) throw new Error("Failed to create campaign");
+      if (!res.ok) throw new Error('Failed to create campaign');
 
-      setIsCreating(false);
-      loadCampaigns();
-      // Reset form
+      setShowCreate(false);
       setName('');
-      setManualNumbers('');
       setCsvFile(null);
-    } catch (e: any) {
-      setError(e.message);
+      loadCampaigns();
+      alert('Campaign created successfully!');
+
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  if (isCreating) {
+  const handleDelete = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this campaign? This cannot be undone.")) return;
+    try {
+      await fetch(`${API_URL}/api/campaigns/${id}`, { method: 'DELETE' });
+      loadCampaigns();
+      if (selectedCampaign?.id === id) setShowDetails(false);
+    } catch (e) {
+      alert("Error deleting campaign");
+    }
+  };
+
+  // --- UI Components ---
+
+  const StatusBadge = ({ status }: { status: string }) => {
+    const colors: Record<string, string> = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      running: 'bg-blue-100 text-blue-800',
+      completed: 'bg-green-100 text-green-800',
+      paused: 'bg-gray-100 text-gray-800'
+    };
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${colors[status] || colors.pending}`}>
+        {status}
+      </span>
+    );
+  };
+
+  if (showDetails && selectedCampaign) {
     return (
       <div className="space-y-6">
-        <header className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Create Campaign</h1>
-            <p className="text-gray-500 text-sm mt-1">Set up a new campaign to execute calls at scale</p>
-          </div>
-          <button onClick={() => setIsCreating(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400">
-            <X size={20} />
+        <div className="flex items-center justify-between">
+          <button onClick={() => setShowDetails(false)} className="text-gray-500 hover:text-gray-900 flex items-center gap-2">
+            ← Back to Campaigns
           </button>
-        </header>
+          <div className='flex gap-2'>
+            <button
+              onClick={() => loadCampaignDetails(selectedCampaign)}
+              className="px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 text-sm flex items-center gap-1"
+            >
+              <History className="w-4 h-4" /> Refresh
+            </button>
+            <button
+              onClick={() => handleDelete(selectedCampaign.id)}
+              className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm flex items-center gap-1"
+            >
+              <Trash2 className="w-4 h-4" /> Delete Campaign
+            </button>
+          </div>
+        </div>
 
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 space-y-6 max-w-2xl mx-auto">
-          <h3 className="text-base font-bold text-gray-900">Campaign Details</h3>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h2 className="text-2xl font-bold mb-2">{selectedCampaign.name}</h2>
+          <div className="grid grid-cols-4 gap-4 mt-4">
+            <div className="p-4 bg-blue-50 rounded-lg">
+              <div className="text-xs text-blue-600 uppercase mb-1">Total Leads</div>
+              <div className="text-2xl font-bold text-blue-900">{selectedCampaign.total_leads || 0}</div>
+            </div>
+            <div className="p-4 bg-green-50 rounded-lg">
+              <div className="text-xs text-green-600 uppercase mb-1">Called</div>
+              <div className="text-2xl font-bold text-green-900">{selectedCampaign.called_leads || 0}</div>
+            </div>
+            <div className="p-4 bg-yellow-50 rounded-lg">
+              <div className="text-xs text-yellow-600 uppercase mb-1">Pending</div>
+              <div className="text-2xl font-bold text-yellow-900">{selectedCampaign.pending_leads || 0}</div>
+            </div>
+            <div className="p-4 bg-red-50 rounded-lg">
+              <div className="text-xs text-red-600 uppercase mb-1">Failed</div>
+              <div className="text-2xl font-bold text-red-900">{selectedCampaign.failed_leads || 0}</div>
+            </div>
+          </div>
+        </div>
 
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800">
+            Call Log
+          </div>
+          <table className="w-full">
+            <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
+              <tr>
+                <th className="px-6 py-3 text-left">Phone Number</th>
+                <th className="px-6 py-3 text-left">Status</th>
+                <th className="px-6 py-3 text-left">Last Update</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {campaignLeads.map((lead) => (
+                <tr key={lead.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 font-mono text-sm">{lead.phone_number}</td>
+                  <td className="px-6 py-4">
+                    <span className={`px-2 py-1 rounded text-xs font-medium capitalize 
+                                    ${lead.status === 'called' ? 'bg-green-100 text-green-800' :
+                        lead.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
+                      {lead.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {lead.updated_at ? new Date(lead.updated_at).toLocaleString() : '-'}
+                  </td>
+                </tr>
+              ))}
+              {campaignLeads.length === 0 && (
+                <tr><td colSpan={3} className="px-6 py-8 text-center text-gray-500">No leads found</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Main Campaign List View ---
+
+  if (showCreate) {
+    return (
+      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+          <h2 className="text-xl font-bold">Create Campaign</h2>
+          <button onClick={() => setShowCreate(false)} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
           {error && (
-            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm border border-red-100">
+            <div className="p-4 bg-red-50 text-red-600 rounded-lg text-sm flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
               {error}
             </div>
           )}
 
-          <div className="space-y-4">
-            {/* NAME */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-1">Campaign Name</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Q1 Customer Survey"
-                className="w-full h-10 px-4 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Campaign Name</label>
+            <input
+              type="text"
+              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none"
+              placeholder="e.g. Q1 Customer Survey"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
 
-            {/* AGENT */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-1">Agent</label>
-              <div className="relative">
-                <select
-                  value={selectedAgent}
-                  onChange={(e) => setSelectedAgent(e.target.value)}
-                  className="w-full h-10 px-4 pr-10 appearance-none bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer"
-                >
-                  <option value="">Select an agent</option>
-                  {agents.map(a => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
-              </div>
-            </div>
-
-            {/* DATA SOURCE TYPE */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-1">Data Source Type</label>
-              <div className="relative">
-                <select
-                  value={dataSource}
-                  onChange={(e) => setDataSource(e.target.value as 'csv' | 'manual' | 'api')}
-                  className="w-full h-10 px-4 pr-10 appearance-none bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer"
-                >
-                  <option value="csv">CSV File</option>
-                  <option value="manual">Manual Entry</option>
-                  <option value="api">API Webhook</option>
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
-              </div>
-            </div>
-
-            {/* CSV INPUT */}
-            {dataSource === 'csv' && (
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="block text-sm font-semibold text-gray-800">CSV File</label>
-                  <button onClick={downloadTemplate} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                    <Download size={12} /> Download Template
-                  </button>
-                </div>
-                <label className={`flex flex-col items-center justify-center w-full px-4 py-6 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition-colors ${csvFile ? 'border-green-300 bg-green-50' : 'border-gray-200'}`}>
-                  {csvFile ? (
-                    <div className="flex flex-col items-center text-green-700">
-                      <CheckCircle size={24} className="mb-2" />
-                      <span className="text-sm font-medium">{csvFile.name}</span>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center text-gray-500">
-                      <Upload size={24} className="mb-2" />
-                      <span className="text-sm">Click to upload or drag and drop</span>
-                      <span className="text-xs text-gray-400 mt-1">.csv files only</span>
-                    </div>
-                  )}
-                  <input type="file" className="hidden" accept=".csv" onChange={(e) => setCsvFile(e.target.files?.[0] || null)} />
-                </label>
-              </div>
-            )}
-
-            {/* MANUAL INPUT */}
-            {dataSource === 'manual' && (
-              <div>
-                <label className="block text-sm font-semibold text-gray-800 mb-1">Phone Numbers</label>
-                <textarea
-                  value={manualNumbers}
-                  onChange={(e) => setManualNumbers(e.target.value)}
-                  placeholder="+34600123456&#10;+34600999888"
-                  className="w-full h-32 px-4 py-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-mono"
-                />
-                <p className="text-[11px] text-gray-400 mt-1">Enter one phone number per line.</p>
-              </div>
-            )}
-
-            {/* API INFO */}
-            {dataSource === 'api' && (
-              <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl space-y-2">
-                <div className="flex items-center gap-2 text-blue-800 font-semibold text-sm">
-                  <CheckCircle size={16} />
-                  <span>API Trigger Configured</span>
-                </div>
-                <p className="text-xs text-blue-600 leading-relaxed">
-                  Upon creation, you will receive a unique Webhook URL. You can send <code>POST</code> requests to this endpoint with a <code>phone_number</code> to instantly trigger calls for this campaign.
-                </p>
-                <div className="mt-2 bg-white p-2 rounded border border-blue-100 font-mono text-xs text-gray-600">
-                  POST {API_URL}/api/campaigns/{'{id}'}/trigger
-                </div>
-              </div>
-            )}
-
-            {/* ADVANCED */}
-            <button
-              onClick={() => setAdvancedOpen(!advancedOpen)}
-              className="flex items-center justify-between w-full p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-colors"
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Agent</label>
+            <select
+              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none"
+              value={selectedAgent}
+              onChange={(e) => setSelectedAgent(e.target.value)}
             >
-              <span className="text-sm font-bold text-gray-800">Advanced Settings / Scheduling</span>
-              <ChevronRight size={18} className={`text-gray-400 transition-transform ${advancedOpen ? 'rotate-90' : ''}`} />
-            </button>
+              <option value="">Select an agent</option>
+              {agents.map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
 
-            {advancedOpen && (
-              <div className="p-4 bg-gray-50 rounded-xl space-y-3">
-                <label className="block text-sm font-medium text-gray-700">Schedule Start Time</label>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Data Source Type</label>
+            <select
+              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none"
+              value={dataSource}
+              onChange={(e) => setDataSource(e.target.value as 'csv' | 'api')}
+            >
+              <option value="csv">CSV File</option>
+              <option value="api">API Integration (Developer)</option>
+            </select>
+          </div>
+
+          {dataSource === 'csv' ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">CSV File</label>
+              <div className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center hover:border-black transition-colors cursor-pointer relative">
                 <input
-                  type="datetime-local"
-                  value={scheduledTime}
-                  onChange={(e) => setScheduledTime(e.target.value)}
-                  className="w-full h-10 px-3 bg-white border border-gray-200 rounded-lg text-sm"
+                  type="file"
+                  accept=".csv"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
                 />
-                <p className="text-xs text-gray-400">Leave blank to start immediately after creation (requires backend worker).</p>
+                <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-sm text-gray-600">
+                  {csvFile ? csvFile.name : 'Click to upload or drag and drop'}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">.csv files only</p>
               </div>
-            )}
-          </div>
+              <div className="mt-2 text-right">
+                <a href="#" className="text-xs text-blue-600 hover:underline flex items-center justify-end gap-1">
+                  <Upload className="w-3 h-3" /> Download Template
+                </a>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">
+                Use our API to programmatically add leads to this campaign.
+              </p>
+              <code className="text-xs bg-gray-100 p-2 block rounded overflow-x-auto">
+                curl -X POST {API_URL}/api/campaigns/{'{id}'}/leads \
+                -H "Content-Type: application/json" \
+                -d '{'{ "phone": "+34600000000" }'}'
+              </code>
+            </div>
+          )}
 
-          <div className="flex gap-3 pt-4 border-t border-gray-50">
-            <button
-              onClick={handleCreate}
-              disabled={loading}
-              className="flex-1 py-2.5 bg-black text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors shadow-sm disabled:opacity-50"
-            >
-              {loading ? 'Creating...' : 'Launch Campaign'}
+          <div className="border-t border-gray-100 pt-6">
+            <button className="flex items-center justify-between w-full text-left font-medium text-gray-700">
+              <span>Advanced Settings / Scheduling</span>
+              <Clock className="w-4 h-4" />
             </button>
-            <button onClick={() => setIsCreating(false)} className="px-6 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
-              Cancel
-            </button>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Schedule Start Time (Optional)</label>
+              <input
+                type="datetime-local"
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg"
+                value={scheduledTime}
+                onChange={(e) => setScheduledTime(e.target.value)}
+              />
+              <p className="text-xs text-gray-500 mt-1">Leave empty to start immediately.</p>
+            </div>
           </div>
+        </div>
+
+        <div className="p-6 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+          <button
+            onClick={() => setShowCreate(false)}
+            className="px-4 py-2 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={loading}
+            className="px-4 py-2 bg-black text-white font-medium rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            {loading ? 'Creating...' : 'Launch Campaign'}
+          </button>
         </div>
       </div>
     );
@@ -305,69 +405,80 @@ const CampaignsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <header className="flex justify-between items-center">
+      <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Campaigns</h1>
-          <p className="text-gray-500 text-sm mt-1">Manage your bulk outbound call campaigns</p>
+          <p className="text-gray-500">Manage your bulk outbound call campaigns</p>
         </div>
         <button
-          onClick={() => setIsCreating(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-[#121212] text-white text-sm font-medium rounded-lg hover:bg-black transition-colors shadow-sm"
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
         >
-          <Plus size={18} />
+          <Plus className="w-4 h-4" />
           Create Campaign
         </button>
-      </header>
+      </div>
 
-      {/* List */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        {campaigns.length === 0 ? (
-          <div className="p-12 flex flex-col items-center justify-center text-center">
-            <FileText size={48} className="text-gray-200 mb-4" />
-            <h3 className="text-gray-900 font-medium mb-1">No campaigns yet</h3>
-            <p className="text-gray-400 text-sm mb-6">Create your first campaign to start calling leads.</p>
-            <button
-              onClick={() => setIsCreating(true)}
-              className="px-4 py-2 bg-gray-50 text-gray-700 rounded-lg text-sm hover:bg-gray-100 font-medium transition-colors"
-            >
-              Create Campaign
-            </button>
-          </div>
-        ) : (
-          <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
-              <tr>
-                <th className="px-6 py-3">Campaign Name</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Scheduled</th>
-                <th className="px-6 py-3">Created</th>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50 border-b border-gray-100">
+            <tr>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Campaign Name</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Progress</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Scheduled</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
+              <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {campaigns.map((campaign) => (
+              <tr key={campaign.id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => loadCampaignDetails(campaign)}>
+                <td className="px-6 py-4 text-sm font-medium text-gray-900">{campaign.name}</td>
+                <td className="px-6 py-4">
+                  <StatusBadge status={campaign.status} />
+                </td>
+                <td className="px-6 py-4 w-48">
+                  {/* Progress Bar */}
+                  <div className="flex flex-col gap-1">
+                    <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500"
+                        style={{ width: `${((campaign.called_leads || 0) / (campaign.total_leads || 1)) * 100}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {campaign.called_leads || 0} / {campaign.total_leads || 0} calls
+                    </div>
+                  </div>
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-500">
+                  {campaign.scheduled_time ? new Date(campaign.scheduled_time).toLocaleString() : '-'}
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-500">
+                  {new Date(campaign.created_at).toLocaleDateString()}
+                </td>
+                <td className="px-6 py-4 text-right text-sm font-medium">
+                  {/* Action buttons (Delete handled via Details but shortcut could be here) */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDelete(campaign.id); }}
+                    className="text-gray-400 hover:text-red-600"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {campaigns.map(c => (
-                <tr key={c.id} className="hover:bg-gray-50/50">
-                  <td className="px-6 py-4 font-medium text-gray-900">{c.name}</td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize 
-                        ${c.status === 'completed' ? 'bg-green-100 text-green-800' :
-                        c.status === 'running' || c.status === 'active' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-gray-500">
-                    {c.scheduled_time ? new Date(c.scheduled_time).toLocaleString() : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-gray-500">
-                    {new Date(c.created_at).toLocaleDateString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+            ))}
+            {campaigns.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                  No campaigns found. Create your first campaign to get started.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
-};
-
-export default CampaignsView;
+}

@@ -514,13 +514,60 @@ async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel
 
 @app.get("/api/campaigns")
 async def get_campaigns():
-    """Lista las campañas"""
+    """Lista las campañas con estadísticas básicas"""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT * FROM campaigns ORDER BY created_at DESC")
+        # Query con conteo de leads por estado
+        cursor.execute("""
+            SELECT c.*, 
+                COUNT(cl.id) as total_leads,
+                SUM(CASE WHEN cl.status = 'called' THEN 1 ELSE 0 END) as called_leads,
+                SUM(CASE WHEN cl.status = 'failed' THEN 1 ELSE 0 END) as failed_leads,
+                SUM(CASE WHEN cl.status = 'pending' THEN 1 ELSE 0 END) as pending_leads
+            FROM campaigns c
+            LEFT JOIN campaign_leads cl ON c.id = cl.campaign_id
+            GROUP BY c.id
+            ORDER BY c.created_at DESC
+        """)
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.get("/api/campaigns/{campaign_id}")
+async def get_campaign_details(campaign_id: int):
+    """Obtiene detalles de una campaña y sus leads"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM campaigns WHERE id = ?", (campaign_id,))
+        campaign = cursor.fetchone()
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+            
+        cursor.execute("SELECT * FROM campaign_leads WHERE campaign_id = ?", (campaign_id,))
+        leads = cursor.fetchall()
+        
+        return {
+            "campaign": dict(campaign),
+            "leads": [dict(l) for l in leads]
+        }
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.delete("/api/campaigns/{campaign_id}")
+async def delete_campaign(campaign_id: int):
+    """Elimina una campaña y sus leads asociados"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM campaign_leads WHERE campaign_id = ?", (campaign_id,))
+        cursor.execute("DELETE FROM campaigns WHERE id = ?", (campaign_id,))
+        conn.commit()
+        return {"status": "deleted", "id": campaign_id}
     finally:
         cursor.close()
         conn.close()
