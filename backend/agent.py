@@ -25,7 +25,9 @@ from livekit.agents import (
 )
 from livekit.plugins import (
     silero,
-    openai, 
+    openai,
+    cartesia,
+    deepgram,
 )
 
 logger = logging.getLogger("agent-Dakota-1ef9")
@@ -75,8 +77,12 @@ class DefaultAgent(Agent):
         super().__init__(
             instructions=instructions,
         )
-
-
+    async def on_enter(self, session: AgentSession):
+        print(f"👋 [Agent] Entrando en sesión. Saludando con: {self.greeting}")
+        await session.generate_reply(
+            instructions=f"Eres Dakota. Acabas de entrar en la llamada y DEBES saludar exactamente así: '{self.greeting}'. No uses herramientas todavía.",
+            allow_interruptions=True
+        )
     @function_tool(name="guardar_encuesta")
     async def _http_tool_guardar_encuesta(
         self, 
@@ -214,12 +220,7 @@ async def entrypoint(ctx: JobContext):
         print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
         
-        # FORZAR SALUDO INICIAL AQUÍ (Muestras de alta fiabilidad)
-        print(f"👋 [Agent] Forzando saludo inicial: {greeting}")
-        await session.generate_reply(
-            instructions=f"Eres Dakota. Acabas de entrar en la llamada y DEBES saludar exactamente así: '{greeting}'. No uses herramientas todavía.",
-            allow_interruptions=True
-        )
+        # El saludo ahora se gestiona en on_enter para mayor estabilidad
 
         # Al terminar la sesión (porque cuelguen), intentar guardar la transcripción final
         async def cleanup():
