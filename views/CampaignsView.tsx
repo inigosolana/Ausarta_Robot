@@ -53,9 +53,9 @@ const CampaignsView: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setAgents(data);
-        // Auto-select if only one agent exists
+        // Auto-select first agent always to ensure UI shows it
         if (data.length > 0) {
-          setSelectedAgent(data[0].id.toString());
+          setSelectedAgent(String(data[0].id));
         }
       }
     } catch (e) { console.error("Error loading agents:", e); }

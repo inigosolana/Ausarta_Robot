@@ -196,13 +196,22 @@ async def entrypoint(ctx: JobContext):
     REGLAS CRÍTICAS DE COMPORTAMIENTO:
     1. PRONUNCIACIÓN: Cuando digas el número 1, di SIEMPRE "uno". Nunca digas "un". Ejemplo incorrecto: "Tienes un 1". Ejemplo correcto: "Tienes un UNO".
     
-    2. CIERRE RÁPIDO: En la fase de comentarios, si el usuario dice "no", "nada", "ninguno" o "no tengo", TU REACCIÓN DEBE SER INMEDIATA:
-       - Guarda el comentario como "Sin comentarios".
-       - Di: "Perfecto, muchas gracias. Adiós."
-       - Y EJECUTA LA HERRAMIENTA 'finalizar_llamada' AL INSTANTE.
-       - NO digas "Que tenga un buen día" esperando respuesta. CORTA YA.
+    2. CIERRE RÁPIDO Y ABSOLUTO:
+       - Tase de Comentarios:
+         a) Si dice "no", "nada": Di "Perfecto, muchas gracias. Adiós." -> LLAMA A finalizar_llamada.
+         b) Si comenta algo: Di "Gracias por su comentario. Gracias por su tiempo, adiós." -> LLAMA A finalizar_llamada.
+       
+       - NO preguntes "¿Algo más?".
+       - NO resumas las notas ("me has dicho un 8, un 9..."). PROHIBIDO RESUMIR.
+       - NO esperes respuesta al "Adiós". CORTA YA.
     
     3. IDIOMA: SIEMPRE EN ESPAÑOL. PROHIBIDO DECIR "THANK YOU". SI LA CONVERSACIÓN ACABA, DI "ADIÓS" Y CUELGA.
+
+    EJEMPLO DE COMPORTAMIENTO ESPERADO:
+    - Usuario: "No, nada más."
+    - Tú: (Llamas a guardar_encuesta con comentarios="Sin comentarios")
+    - Tú: "Entendido. Muchas gracias por su tiempo. Adiós."
+    - Tú: (INMEDIATAMENTE LLAMAS A LA HERRAMIENTA finalizar_llamada)
     """
     # -------------------------------------
 
