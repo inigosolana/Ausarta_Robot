@@ -34,8 +34,6 @@ const App: React.FC = () => {
     switch (currentView) {
       case 'telephony':
         return <TelephonyView />;
-      case 'models':
-        return <ModelsView />;
       case 'campaigns':
         return <CampaignsView />;
       case 'voice-agents':
@@ -108,13 +106,6 @@ const App: React.FC = () => {
             label="Automation"
             isActive={currentView === 'automation'}
             onClick={() => setCurrentView('automation')}
-            collapsed={!isSidebarOpen}
-          />
-          <SidebarItem
-            icon={<Cpu size={18} />}
-            label="Models"
-            isActive={currentView === 'models'}
-            onClick={() => setCurrentView('models')}
             collapsed={!isSidebarOpen}
           />
           <SidebarItem

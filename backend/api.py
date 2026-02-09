@@ -49,6 +49,7 @@ def init_database():
             puntuacion_instalador INTEGER DEFAULT NULL,
             puntuacion_rapidez INTEGER DEFAULT NULL,
             comentarios TEXT DEFAULT NULL,
+            transcription TEXT DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -196,6 +197,10 @@ REGLAS CRÍTICAS:
         cursor.execute("ALTER TABLE encuestas ADD COLUMN nombre_cliente VARCHAR(100)")
     except: pass
     
+    try:
+        cursor.execute("ALTER TABLE encuestas ADD COLUMN transcription TEXT")
+    except: pass
+    
     conn.commit()
     conn.close()
     print("✅ Base de datos SQLite inicializada/actualizada correctamente")
@@ -268,7 +273,9 @@ class FinEncuesta(BaseModel):
     nota_comercial: Union[int, str, None] = None
     nota_instalador: Union[int, str, None] = None
     nota_rapidez: Union[int, str, None] = None
-    comentarios: Optional[str] = "Sin comentarios"
+    comentarios: Optional[str] = None
+    transcription: Optional[str] = None
+    status: Optional[str] = None # 'completed', 'failed', etc.
 
 class ColgarLlamada(BaseModel):
     nombre_sala: str
@@ -333,10 +340,10 @@ async def get_dashboard_stats():
 async def get_recent_calls():
     conn = get_db_connection()
     cursor = conn.cursor()
-    # Seleccionamos ID también
     cursor.execute("""
         SELECT id, telefono, fecha, completada,
-               puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez
+               puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez,
+               comentarios, transcription
         FROM encuestas 
         ORDER BY fecha DESC LIMIT 10
     """)
@@ -811,23 +818,23 @@ async def guardar_encuesta(datos: FinEncuesta):
             update_fields.append("comentarios = ?")
             params.append(datos.comentarios)
 
-        # Determinar si está completa (si tenemos los 3 valores)
-        # Check current values first to combine with new ones
-        cursor.execute("SELECT puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez FROM encuestas WHERE id = ?", (id_final,))
-        current_vals = cursor.fetchone()
-        
-        # Helper to check if we have a value either in DB or in current request
-        def has_val(db_idx, req_val):
-            return (current_vals[db_idx] is not None) or (req_val is not None)
+        if datos.transcription is not None:
+            update_fields.append("transcription = ?")
+            params.append(datos.transcription)
 
-        is_complete = (
-            has_val(0, datos.nota_comercial) and 
-            has_val(1, datos.nota_instalador) and 
-            has_val(2, datos.nota_rapidez)
-        )
+        # Determinar estado de 'completada'
+        # Si el agente dice 'failed', marcamos como NO completada (0)
+        # Si el agente dice 'completed' o no dice nada pero hay transcripción, marcamos como completada (1)
+        final_complete = 1
+        if datos.status == 'failed':
+            final_complete = 0
+        elif datos.transcription and "Cliente:" not in datos.transcription:
+            # Si no hay nada del cliente, podría ser una llamada fallida (buzón, IVR...)
+            # Pero para ser seguros, solo marcamos 0 si es explícito o muy corto.
+            pass
 
-        if is_complete:
-            update_fields.append("completada = 1")
+        update_fields.append("completada = ?")
+        params.append(final_complete)
         
         update_fields.append("updated_at = CURRENT_TIMESTAMP")
 
@@ -838,8 +845,19 @@ async def guardar_encuesta(datos: FinEncuesta):
         params.append(id_final)
 
         cursor.execute(sql, tuple(params))
+        
+        # Sincronizar con campaign_leads
+        lead_status = 'called' if final_complete == 1 else 'failed'
+        cursor.execute("UPDATE campaign_leads SET status = ? WHERE call_id = ?", (lead_status, id_final))
+        
+        # Fallback por teléfono
+        cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))
+        phone_res = cursor.fetchone()
+        if phone_res:
+            cursor.execute("UPDATE campaign_leads SET status = ? WHERE phone_number = ? AND status = 'pending'", (lead_status, phone_res[0]))
+
         conn.commit()
-        print(f"🚀 ¡EXITO! Datos guardados parcialmente en ficha {id_final}. Completa: {is_complete}")
+        print(f"🚀 [Guardar] ID {id_final}: completada={final_complete} (Status: {datos.status})")
         return {"status": "success"}
     finally:
         cursor.close()

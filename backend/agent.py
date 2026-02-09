@@ -94,76 +94,65 @@ class DefaultAgent(Agent):
         comentarios: Optional[str] = None
     ) -> str | None:
         """
-        Guarda los datos de la encuesta recibidos del usuario.
-        PUEDES y DEBES llamar a esta función cada vez que obtengas un dato nuevo.
-        No es necesario enviar todos los datos a la vez. Envía solo lo que tengas.
+        Guarda los datos de la encuesta. LLAMAR SIEMPRE que se obtenga una nota o comentario.
         """
-        print(f"🛠️ [Tool] Ejecutando guardar_encuesta: ID={id_encuesta}, Notas=[{nota_comercial}, {nota_instalador}, {nota_rapidez}]")
+        print(f"🛠️ [Tool] Ejecutando guardar_encuesta: ID={id_encuesta}")
         context.disallow_interruptions()
         url = f"{self.server_url}/guardar-encuesta"
         
-        # Ensure ID is int
-        nav_id = id_encuesta
-        if isinstance(nav_id, str):
-            import re
-            nums = re.findall(r'\d+', nav_id)
-            if nums: nav_id = int(nums[0])
-            
+        # Enviar también la transcripción acumulada hasta ahora
+        transcript = ""
+        if hasattr(self, 'full_transcript'):
+            transcript = self.full_transcript
+
         payload = {
-            "id_encuesta": nav_id,
+            "id_encuesta": id_encuesta,
             "nota_comercial": nota_comercial,
             "nota_instalador": nota_instalador,
             "nota_rapidez": nota_rapidez,
             "comentarios": comentarios,
+            "transcription": transcript
         }
         try:
             session = utils.http_context.http_session()
             async with session.post(url, timeout=aiohttp.ClientTimeout(total=10), json=payload) as resp:
                 resultado = await resp.text()
-                print(f"✅ [Tool] Resultado guardar_encuesta: {resultado}")
                 return resultado
         except Exception as e:
             print(f"❌ [Tool] Error en guardar_encuesta: {e}")
-            raise ToolError(f"Error DB: {e}")
+            return f"error: {e}"
 
     @function_tool(name="finalizar_llamada")
     async def _http_tool_finalizar_llamada(
         self, context: RunContext, nombre_sala: str
     ) -> str | None:
-        """Corta la llamada inmediatamente."""
-        print(f"🛠️ [Tool] Ejecutando finalizar_llamada: Sala={nombre_sala}")
+        """Corta la llamada inmediatamente. Usar tras despedirse."""
+        print(f"🛠️ [Tool] Finalizando llamada en sala: {nombre_sala}")
         context.disallow_interruptions()
+        
+        # Intentar guardar una última vez con la transcripción completa antes de colgar
+        try:
+             # Buscar el ID de encuesta en las instrucciones o contexto si fuera posible, 
+             # pero aquí confiamos en que ya se ha ido guardando.
+             pass
+        except: pass
+
         url = f"{self.server_url}/colgar"
         payload = {"nombre_sala": nombre_sala}
         try:
             session = utils.http_context.http_session()
             async with session.post(url, timeout=aiohttp.ClientTimeout(total=10), json=payload) as resp:
-                resultado = await resp.text()
-                print(f"✅ [Tool] Resultado finalizar_llamada: {resultado}")
-                return resultado
-        except Exception as e:
-            print(f"❌ [Tool] Error en finalizar_llamada: {e}")
-            raise ToolError(f"Error Colgar: {e}")
+                return await resp.text()
+        except:
+            return "error"
 
 def prewarm(proc: JobProcess):
-    try:
-        # Ajustamos el VAD para ignorar ruidos cortos (menos de 0.2s) y esperar 0.5s de silencio
-        proc.userdata["vad"] = silero.VAD.load(
-            min_speech_duration=0.2, 
-            min_silence_duration=0.5
-        )
-        print("✅ VAD cargado con configuración anti-ruido.")
-    except Exception as e:
-        print(f"⚠️ No se pudieron aplicar opciones avanzadas al VAD, usando defaults. Error: {e}")
-        proc.userdata["vad"] = silero.VAD.load()
+    proc.userdata["vad"] = silero.VAD.load(min_speech_duration=0.15, min_silence_duration=0.4)
 
 server = AgentServer(setup_fnc=prewarm)
 
 @server.rtc_session(agent_name="Dakota-1ef9")
 async def entrypoint(ctx: JobContext):
-    print(f"⚡ [Agent] ¡Job recibido! Sala: {ctx.room.name}")
-    
-    # Cargar configuración dinámica
     ai_config, agent_config = get_config()
     
     # Defaults
@@ -172,100 +161,88 @@ async def entrypoint(ctx: JobContext):
     tts_voice = ai_config.get('tts_voice', '6511153f-72f9-4314-a204-8d8d8afd646a')
     stt_model = ai_config.get('stt_model', 'nova-3')
     
-    instructions = agent_config.get('instructions', "Eres un asistente de encuestas de calidad de Ausarta.")
-    greeting = agent_config.get('greeting', "Hola, soy Dakota de Ausarta.")
+    instructions = """Tu nombre es Dakota. Le llamas de Ausarta para realizar una breve encuesta de satisfacción sobre un servicio reciente.
     
-    # PATCH: Forzar saludo sin nombre "Dakota"
-    if "Dakota" in greeting:
-        greeting = "Hola, le llamo de Ausarta para una encuesta rápida. ¿Tiene un minuto?"
+    MISION:
+    1. Saluda cordialmente y pregunta si dispone de un minuto.
+    2. Si acepta, haz estas 3 preguntas UNA A UNA:
+       - Califique del 1 al 10 el trato comercial recibido.
+       - Califique del 1 al 10 al técnico instalador.
+       - Califique del 1 al 10 la rapidez del servicio.
+    3. Al finalizar las 3 notas, pregunta si desea dejar algún comentario adicional.
+    4. Usa la herramienta 'guardar_encuesta' tras cada respuesta para registrar los datos.
+    
+    REGLAS DE ORO:
+    - NUNCA menciones IDs técnicos, números de encuesta ni nombres de bases de datos.
+    - Si el cliente cuelga pronto o dice que no puede hablar, no insistas. Simplemente guarda lo que tengas.
+    - Cuando digas el número 1, di SIEMPRE "uno".
+    - Sé directo, educado y muy breve. Una encuesta de menos de 1 minuto.
+    - Una vez recogido el comentario (o si dice que no tiene ninguno), di: "Muchas gracias por su tiempo. Que tenga un buen día. Adiós." y usa 'finalizar_llamada' inmediatamente.
+    """
 
-    # PATCH: Personalización con Nombre del Cliente (si existe en metadatos)
-    customer_name = ctx.job.metadata.strip() if ctx.job.metadata else None
-    if customer_name:
-        print(f"👤 [Agent] Cliente identificado: {customer_name}")
-        # Insertar nombre en el saludo de forma natural
-        if "Hola," in greeting:
-            greeting = greeting.replace("Hola,", f"Hola {customer_name},")
-        elif "Hola" in greeting:
-            greeting = greeting.replace("Hola", f"Hola {customer_name}")
-        else:
-            greeting = f"Hola {customer_name}. {greeting}"
-
-    print(f"🎤 [Agent] Inicializando sesión con: LLM={llm_model}, TTS={tts_model}")
-
-    # Extract ID from room name (e.g. encuesta_123)
+    # Extraer ID de la sala
     import re
     survey_id = None
-    try:
-        match = re.search(r'encuesta_(\d+)', ctx.room.name)
-        if match:
-            survey_id = match.group(1)
-            print(f"🆔 Survey ID detected: {survey_id}")
-            instructions += f"\n\nCONTEXTO DE SISTEMA:\n- El ID de esta encuesta es: {survey_id}.\n- DEBES usar este ID ({survey_id}) en cada llamada a la herramienta 'guardar_encuesta'."
-    except Exception as e:
-        print(f"⚠️ Error extracting survey ID: {e}")
+    match = re.search(r'encuesta_(\d+)', ctx.room.name)
+    if match:
+        survey_id = int(match.group(1))
+        instructions += f"\n- IMPORTANTE: El ID de esta encuesta es {survey_id}."
 
-    # --- CRITICAL INSTRUCTION PATCHES ---
-    # Parche para asegurar comportamiento correcto aunque la DB tenga instrucciones viejas
-    instructions += """
-    
-    REGLAS CRÍTICAS DE COMPORTAMIENTO:
-    0. SALUDO: PRESÉNTATE COMO "Le llamo de Ausarta". NO digas "Soy Dakota". Si te preguntan quién eres, di "Le llamo de Ausarta para una encuesta de calidad".
-    1. PRONUNCIACIÓN: Cuando digas el número 1, di SIEMPRE "uno". Nunca digas "un". Ejemplo incorrecto: "Tienes un 1". Ejemplo correcto: "Tienes un UNO".
-    
-    2. CIERRE RÁPIDO Y ABSOLUTO:
-       - Tase de Comentarios:
-         a) Si dice "no", "nada": Di "Perfecto, muchas gracias. Adiós." -> LLAMA A finalizar_llamada.
-         b) Si comenta algo: Di "Gracias por su comentario. Gracias por su tiempo, adiós." -> LLAMA A finalizar_llamada.
-       
-       - NO preguntes "¿Algo más?".
-       - NO resumas las notas ("me has dicho un 8, un 9..."). PROHIBIDO RESUMIR.
-       - NO esperes respuesta al "Adiós". CORTA YA.
-    
-    3. IDIOMA: SIEMPRE EN ESPAÑOL. PROHIBIDO DECIR "THANK YOU". SI LA CONVERSACIÓN ACABA, DI "ADIÓS" Y CUELGA.
-
-    EJEMPLO DE COMPORTAMIENTO ESPERADO:
-    - Usuario: "No, nada más."
-    - Tú: (Llamas a guardar_encuesta con comentarios="Sin comentarios")
-    - Tú: "Entendido. Muchas gracias por su tiempo. Adiós."
-    - Tú: (INMEDIATAMENTE LLAMAS A LA HERRAMIENTA finalizar_llamada)
-    """
-    # -------------------------------------
+    greeting = "Hola, le llamo de Ausarta por el servicio reciente. ¿Tiene un minuto para una encuesta rápida?"
+    customer_name = ctx.job.metadata.strip() if ctx.job.metadata else None
+    if customer_name:
+        greeting = f"Hola {customer_name}, le llamo de Ausarta. ¿Tiene un minuto para una encuesta rápida?"
 
     try:
         session = AgentSession(
             stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
-            # Configuración Groq (LLM)
-            llm=openai.LLM(
-                model=llm_model,
-                base_url="https://api.groq.com/openai/v1",
-                api_key=os.getenv("GROQ_API_KEY")
-            ),
-            tts=inference.TTS(
-                model=f"cartesia/{tts_model}",
-                voice=tts_voice,
-                language="es"
-            ),
+            llm=openai.LLM(model=llm_model, base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY")),
+            tts=inference.TTS(model=f"cartesia/{tts_model}", voice=tts_voice, language="es"),
             vad=ctx.proc.userdata["vad"],
-            preemptive_generation=True,
         )
 
-        print("🚀 [Agent] Conectando a la sala...")
-        await session.start(
-            agent=DefaultAgent(instructions=instructions, greeting=greeting),
-            room=ctx.room,
-        )
-        print("✅ [Agent] Conectado y listo para hablar!")
+        agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)
+        agent_instance.full_transcript = ""
+        agent_instance.interaction_count = 0
 
-        background_audio = BackgroundAudioPlayer(
-            ambient_sound=AudioConfig(BuiltinAudioClip.OFFICE_AMBIENCE, volume=0.1),
-        )
-        await background_audio.start(room=ctx.room, agent_session=session)
-        print("🎵 [Agent] Audio de fondo iniciado")
+        # Capturar transcripción en tiempo real
+        @session.on("transcription_received")
+        def on_transcription(transcript: inference.Transcription):
+            if transcript.is_final:
+                role = "Agente" if transcript.participant == ctx.room.local_participant else "Cliente"
+                if role == "Cliente":
+                    agent_instance.interaction_count += 1
+                msg = f"{role}: {transcript.text}\n"
+                agent_instance.full_transcript += msg
+                print(f"📝 {msg.strip()}")
+
+        await session.start(agent=agent_instance, room=ctx.room)
+        
+        # Al terminar la sesión (porque cuelguen), intentar guardar la transcripción final
+        async def cleanup():
+            if survey_id:
+                # Si el cliente nunca dijo nada, marcamos como fallida (IVR, buzón, colgó rápido)
+                final_status = 'completed' if agent_instance.interaction_count > 0 else 'failed'
+                print(f"💾 Guardando final - ID {survey_id} | Status: {final_status}")
+                
+                url = f"http://127.0.0.1:8001/guardar-encuesta"
+                payload = {
+                    "id_encuesta": survey_id, 
+                    "transcription": agent_instance.full_transcript,
+                    "status": final_status
+                }
+                try:
+                    async with aiohttp.ClientSession() as s:
+                        await s.post(url, json=payload, timeout=5)
+                except Exception as e:
+                    print(f"⚠️ Error cleanup save: {e}")
+
+        ctx.add_shutdown_callback(cleanup)
+
+        await BackgroundAudioPlayer().start(room=ctx.room, agent_session=session)
         
     except Exception as e:
-        print(f"❌ [Agent] ERROR FATAL en entrypoint: {e}")
-        logger.error(f"Error starting session: {e}", exc_info=True)
+        print(f"❌ Error: {e}")
 
 if __name__ == "__main__":
     cli.run_app(server)

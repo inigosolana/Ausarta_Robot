@@ -11,12 +11,14 @@ interface SurveyResult {
     puntuacion_instalador: number | null;
     puntuacion_rapidez: number | null;
     comentarios: string | null;
+    transcription: string | null;
 }
 
 const ResultsView: React.FC = () => {
     const [results, setResults] = useState<SurveyResult[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [viewingTranscript, setViewingTranscript] = useState<SurveyResult | null>(null);
 
     const loadResults = async () => {
         setLoading(true);
@@ -40,11 +42,12 @@ const ResultsView: React.FC = () => {
 
     const filteredResults = results.filter(r =>
         r.telefono.includes(searchTerm) ||
-        (r.comentarios && r.comentarios.toLowerCase().includes(searchTerm.toLowerCase()))
+        (r.comentarios && r.comentarios.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (r.transcription && r.transcription.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
     const exportCSV = () => {
-        const headers = ["ID", "Teléfono", "Fecha", "Completada", "P. Comercial", "P. Instalador", "P. Rapidez", "Comentarios"];
+        const headers = ["ID", "Teléfono", "Fecha", "Completada", "P. Comercial", "P. Instalador", "P. Rapidez", "Comentarios", "Transcripción"];
         const csvContent = [
             headers.join(","),
             ...results.map(r => [
@@ -55,7 +58,8 @@ const ResultsView: React.FC = () => {
                 r.puntuacion_comercial || "",
                 r.puntuacion_instalador || "",
                 r.puntuacion_rapidez || "",
-                `"${(r.comentarios || "").replace(/"/g, '""')}"`
+                `"${(r.comentarios || "").replace(/"/g, '""')}"`,
+                `"${(r.transcription || "").replace(/"/g, '""')}"`
             ].join(","))
         ].join("\n");
 
@@ -99,7 +103,7 @@ const ResultsView: React.FC = () => {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                     <input
                         type="text"
-                        placeholder="Search by phone or comments..."
+                        placeholder="Search by phone, comments or transcript..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black/20"
@@ -110,7 +114,7 @@ const ResultsView: React.FC = () => {
             {/* Table */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
+                    <table className="w-full text-sm text-left text-gray-700">
                         <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
                             <tr>
                                 <th className="px-6 py-3 w-16">ID</th>
@@ -119,12 +123,13 @@ const ResultsView: React.FC = () => {
                                 <th className="px-6 py-3 text-center">Status</th>
                                 <th className="px-6 py-3 text-center">Scores (C/I/R)</th>
                                 <th className="px-6 py-3">Comments</th>
+                                <th className="px-6 py-3 text-right">More</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {filteredResults.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
+                                    <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
                                         No results found
                                     </td>
                                 </tr>
@@ -141,42 +146,43 @@ const ResultsView: React.FC = () => {
                                                 Completed
                                             </span>
                                         ) : (
-                                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-50 text-yellow-700 border border-yellow-100">
-                                                Partial / Incomplete
+                                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-100">
+                                                Failed / No interaction
                                             </span>
                                         )}
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex items-center justify-center gap-2">
-                                            <div className="flex flex-col items-center">
-                                                <span className="text-[10px] text-gray-400 mb-0.5">COM</span>
-                                                <span className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shadow-sm ${getScoreColor(row.puntuacion_comercial)}`}>
-                                                    {row.puntuacion_comercial ?? '-'}
-                                                </span>
-                                            </div>
-                                            <div className="flex flex-col items-center">
-                                                <span className="text-[10px] text-gray-400 mb-0.5">INS</span>
-                                                <span className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shadow-sm ${getScoreColor(row.puntuacion_instalador)}`}>
-                                                    {row.puntuacion_instalador ?? '-'}
-                                                </span>
-                                            </div>
-                                            <div className="flex flex-col items-center">
-                                                <span className="text-[10px] text-gray-400 mb-0.5">RAP</span>
-                                                <span className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shadow-sm ${getScoreColor(row.puntuacion_rapidez)}`}>
-                                                    {row.puntuacion_rapidez ?? '-'}
-                                                </span>
-                                            </div>
+                                            {[
+                                                { label: 'COM', val: row.puntuacion_comercial },
+                                                { label: 'INS', val: row.puntuacion_instalador },
+                                                { label: 'RAP', val: row.puntuacion_rapidez }
+                                            ].map((s, idx) => (
+                                                <div key={idx} className="flex flex-col items-center">
+                                                    <span className="text-[10px] text-gray-400 mb-0.5">{s.label}</span>
+                                                    <span className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shadow-sm ${getScoreColor(s.val)}`}>
+                                                        {s.val ?? '-'}
+                                                    </span>
+                                                </div>
+                                            ))}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
                                         {row.comentarios && row.comentarios !== "Sin comentarios" ? (
-                                            <div className="bg-yellow-50 border border-yellow-100 p-3 rounded-lg text-sm text-gray-800 italic relative">
-                                                <span className="absolute top-2 left-2 text-yellow-300 text-xl leading-none">"</span>
-                                                <p className="pl-4 pr-2">{row.comentarios}</p>
+                                            <div className="bg-yellow-50 border border-yellow-100 p-2 rounded-lg text-xs text-gray-800 italic max-w-xs truncate">
+                                                "{row.comentarios}"
                                             </div>
                                         ) : (
-                                            <span className="text-gray-300 italic text-xs">No highlighted comments</span>
+                                            <span className="text-gray-300 italic text-xs">None</span>
                                         )}
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <button
+                                            onClick={() => setViewingTranscript(row)}
+                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1 text-xs ml-auto"
+                                        >
+                                            <FileText size={16} /> Transcription
+                                        </button>
                                     </td>
                                 </tr>
                             ))}
@@ -184,16 +190,76 @@ const ResultsView: React.FC = () => {
                     </table>
                 </div>
             </div>
+
+            {/* Transcript Modal */}
+            {viewingTranscript && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+                        <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">Transcription #{viewingTranscript.id}</h3>
+                                <p className="text-xs text-gray-500">{viewingTranscript.telefono} • {new Date(viewingTranscript.fecha).toLocaleString()}</p>
+                            </div>
+                            <button
+                                onClick={() => setViewingTranscript(null)}
+                                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 bg-white border border-gray-200 rounded-full hover:shadow-sm transition-all"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto space-y-4 bg-gray-50/20">
+                            {viewingTranscript.transcription ? (
+                                viewingTranscript.transcription.split('\n').filter(l => l.trim()).map((line, i) => {
+                                    const isAgente = line.startsWith('Agente:');
+                                    return (
+                                        <div key={i} className={`flex ${isAgente ? 'justify-start' : 'justify-end'}`}>
+                                            <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm shadow-sm border ${isAgente
+                                                ? 'bg-blue-600 text-white border-blue-700 rounded-tl-none'
+                                                : 'bg-white text-gray-800 border-gray-100 rounded-tr-none'
+                                                }`}>
+                                                <p className="font-semibold text-[10px] uppercase tracking-wider mb-1 opacity-70">
+                                                    {isAgente ? 'Ausarta Robot' : 'Cliente'}
+                                                </p>
+                                                <p className="leading-relaxed">
+                                                    {line.replace(/^(Agente|Cliente): /, '')}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="text-center py-12">
+                                    <div className="bg-gray-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                                        <FileText className="text-gray-400" />
+                                    </div>
+                                    <p className="text-gray-500 font-medium">No transcription available</p>
+                                    <p className="text-xs text-gray-400">The call might have been too short or no speech detected.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex justify-end">
+                            <button
+                                onClick={() => setViewingTranscript(null)}
+                                className="px-6 py-2 bg-gray-900 text-white text-sm font-semibold rounded-xl hover:bg-black transition-all shadow-lg"
+                            >
+                                Close View
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
 function getScoreColor(score: number | null): string {
-    if (score === null) return 'bg-gray-100 text-gray-400';
-    if (score >= 9) return 'bg-green-100 text-green-700';
-    if (score >= 7) return 'bg-blue-100 text-blue-700';
-    if (score >= 5) return 'bg-yellow-100 text-yellow-700';
-    return 'bg-red-100 text-red-700';
+    if (score === null) return 'bg-gray-50 text-gray-400 border border-gray-100';
+    if (score >= 9) return 'bg-green-100 text-green-700 border border-green-200';
+    if (score >= 7) return 'bg-blue-100 text-blue-700 border border-blue-200';
+    if (score >= 5) return 'bg-yellow-100 text-yellow-700 border border-yellow-200';
+    return 'bg-red-100 text-red-700 border border-red-200';
 }
 
 export default ResultsView;
