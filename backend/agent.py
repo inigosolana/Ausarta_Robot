@@ -138,7 +138,16 @@ class DefaultAgent(Agent):
             raise ToolError(f"Error Colgar: {e}")
 
 def prewarm(proc: JobProcess):
-    proc.userdata["vad"] = silero.VAD.load()
+    try:
+        # Ajustamos el VAD para ignorar ruidos cortos (menos de 0.2s) y esperar 0.5s de silencio
+        proc.userdata["vad"] = silero.VAD.load(
+            min_speech_duration=0.2, 
+            min_silence_duration=0.5
+        )
+        print("✅ VAD cargado con configuración anti-ruido.")
+    except Exception as e:
+        print(f"⚠️ No se pudieron aplicar opciones avanzadas al VAD, usando defaults. Error: {e}")
+        proc.userdata["vad"] = silero.VAD.load()
 
 server = AgentServer(setup_fnc=prewarm)
 
