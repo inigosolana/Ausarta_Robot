@@ -155,11 +155,11 @@ server = AgentServer(setup_fnc=prewarm)
 async def entrypoint(ctx: JobContext):
     ai_config, agent_config = get_config()
     
-    # Defaults
-    llm_model = ai_config.get('llm_model', 'llama-3.3-70b-versatile')
-    tts_model = ai_config.get('tts_model', 'sonic-3')
-    tts_voice = ai_config.get('tts_voice', '6511153f-72f9-4314-a204-8d8d8afd646a')
-    stt_model = ai_config.get('stt_model', 'nova-3')
+    # Defaults ultra-estables (Hardcoded para evitar fallos de BD)
+    llm_model = ai_config.get('llm_model') or 'llama-3.3-70b-versatile'
+    tts_model = ai_config.get('tts_model') or 'sonic-multilingual'
+    tts_voice = ai_config.get('tts_voice') or '6511153f-72f9-4314-a204-8d8d8afd646a'
+    stt_model = ai_config.get('stt_model') or 'nova-2'
     
     instructions = """Tu nombre es Dakota. Le llamas de Ausarta para realizar una breve encuesta de satisfacción sobre un servicio reciente.
     
@@ -195,11 +195,10 @@ async def entrypoint(ctx: JobContext):
 
     try:
         session = AgentSession(
-            stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
+            stt=deepgram.STT(model=stt_model, language="es"),
             llm=openai.LLM(model=llm_model, base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY")),
-            tts=inference.TTS(model=f"cartesia/{tts_model}", voice=tts_voice, language="es"),
+            tts=cartesia.TTS(model=tts_model, voice=tts_voice, language="es"),
             vad=ctx.proc.userdata["vad"],
-            preemptive_generation=True,
         )
 
         agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)
@@ -220,7 +219,12 @@ async def entrypoint(ctx: JobContext):
         print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
         
-        # El saludo ahora se gestiona en on_enter para mayor estabilidad
+        # FORZAR SALUDO (Método manual directo)
+        await asyncio.sleep(0.5) # Pequeña pausa para asegurar conexión de audio
+        await session.generate_reply(
+            instructions=f"Saluda ahora mismo diciendo exactamente: {greeting}",
+            allow_interruptions=True
+        )
 
         # Al terminar la sesión (porque cuelguen), intentar guardar la transcripción final
         async def cleanup():
