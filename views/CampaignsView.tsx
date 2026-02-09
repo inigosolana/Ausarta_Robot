@@ -96,18 +96,36 @@ export function CampaignsView() {
     }
   };
 
-  const parseCSV = (file: File): Promise<string[]> => {
+  const parseCSV = (file: File): Promise<{ phone_number: string, customer_name?: string }[]> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result as string;
         const lines = text.split('\n');
-        const phones: string[] = [];
-        lines.forEach(line => {
-          const phone = line.trim().replace(/[^0-9+]/g, '');
-          if (phone.length > 5) phones.push(phone);
+        const results: { phone_number: string, customer_name?: string }[] = [];
+
+        lines.forEach((line, index) => {
+          // Ignorar cabecera si parece una
+          if (index === 0 && line.toLowerCase().includes('phone')) return;
+
+          const parts = line.split(',');
+          // Asumimos col 1 = telefono, col 2 = nombre (opcional)
+          if (parts.length >= 1) {
+            const rawPhone = parts[0];
+            const rawName = parts.length > 1 ? parts[1] : '';
+
+            const phone = rawPhone.trim().replace(/[^0-9+]/g, '');
+            let name = rawName.trim().replace(/^["']|["']$/g, ''); // Remove quotes
+
+            if (phone.length > 5) {
+              results.push({
+                phone_number: phone,
+                customer_name: name || undefined
+              });
+            }
+          }
         });
-        resolve(phones);
+        resolve(results);
       };
       reader.onerror = reject;
       reader.readAsText(file);
@@ -124,11 +142,10 @@ export function CampaignsView() {
     setError('');
 
     try {
-      let leads: { phone_number: string }[] = [];
+      let leads: { phone_number: string, customer_name?: string }[] = [];
 
       if (dataSource === 'csv' && csvFile) {
-        const phones = await parseCSV(csvFile);
-        leads = phones.map(p => ({ phone_number: p }));
+        leads = await parseCSV(csvFile);
       } else if (dataSource === 'csv' && !csvFile) {
         throw new Error("Please upload a CSV file");
       }
@@ -137,7 +154,7 @@ export function CampaignsView() {
         campaign: {
           name,
           agent_id: selectedAgent,
-          scheduled_time: scheduledTime || null, // If empty string, send null
+          scheduled_time: scheduledTime || null,
           status: 'pending'
         },
         leads

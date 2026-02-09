@@ -179,6 +179,18 @@ async def entrypoint(ctx: JobContext):
     if "Dakota" in greeting:
         greeting = "Hola, le llamo de Ausarta para una encuesta rápida. ¿Tiene un minuto?"
 
+    # PATCH: Personalización con Nombre del Cliente (si existe en metadatos)
+    customer_name = ctx.job.metadata.strip() if ctx.job.metadata else None
+    if customer_name:
+        print(f"👤 [Agent] Cliente identificado: {customer_name}")
+        # Insertar nombre en el saludo de forma natural
+        if "Hola," in greeting:
+            greeting = greeting.replace("Hola,", f"Hola {customer_name},")
+        elif "Hola" in greeting:
+            greeting = greeting.replace("Hola", f"Hola {customer_name}")
+        else:
+            greeting = f"Hola {customer_name}. {greeting}"
+
     print(f"🎤 [Agent] Inicializando sesión con: LLM={llm_model}, TTS={tts_model}")
 
     # Extract ID from room name (e.g. encuesta_123)
