@@ -211,9 +211,9 @@ async def entrypoint(ctx: JobContext):
         # VAD estándar
         vad = silero.VAD.load()
         
-        # Restaurar wrappers de inference con prefijos correctos
-        stt = inference.STT(model=f"deepgram/{stt_model}", language="es")
-        tts = inference.TTS(model=f"cartesia/{tts_model}", voice=tts_voice)
+        # Usar los plugins directamente (inference.STT/TTS
+        stt = deepgram.STT(model=stt_model, language="es")
+        tts = cartesia.TTS(model=tts_model, voice=tts_voice)
         
         session = AgentSession(
             stt=stt,

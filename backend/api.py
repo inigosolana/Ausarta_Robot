@@ -83,7 +83,7 @@ def init_database():
         CREATE TABLE IF NOT EXISTS ai_config (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             llm_provider VARCHAR(50) DEFAULT 'groq',
-            llm_model VARCHAR(100) DEFAULT 'llama-3.3-70b-versatile',
+            llm_model VARCHAR(100) DEFAULT 'llama-3.1-8b-instant',
             tts_provider VARCHAR(50) DEFAULT 'cartesia',
             tts_model VARCHAR(100) DEFAULT 'sonic-multilingual',
             tts_voice VARCHAR(200) DEFAULT '6511153f-72f9-4314-a204-8d8d8afd646a',
