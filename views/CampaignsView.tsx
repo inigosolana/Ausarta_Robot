@@ -204,6 +204,24 @@ export function CampaignsView() {
     }
   };
 
+  const handleRetryFailed = async (id: number) => {
+    if (!confirm("Are you sure you want to retry all failed calls in this campaign?")) return;
+    try {
+      const res = await fetch(`${API_URL}/api/campaigns/${id}/retry`, { method: 'POST' });
+      const data = await res.json();
+
+      if (res.ok && data.status === 'success') {
+        alert(`Successfully queued ${data.retried_count} failed calls for retry.`);
+        if (selectedCampaign) loadCampaignDetails(selectedCampaign);
+        loadCampaigns();
+      } else {
+        alert("Failed to retry calls.");
+      }
+    } catch (e) {
+      alert("Error connecting to server");
+    }
+  };
+
   // --- UI Components ---
 
   const StatusBadge = ({ status }: { status: string }) => {
@@ -234,6 +252,17 @@ export function CampaignsView() {
             >
               <History className="w-4 h-4" /> Refresh
             </button>
+
+            {/* Retry Button - Only show if there are failed leads */}
+            {(selectedCampaign.failed_leads || 0) > 0 && (
+              <button
+                onClick={() => handleRetryFailed(selectedCampaign.id)}
+                className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 text-sm flex items-center gap-1"
+              >
+                <Clock className="w-4 h-4" /> Retry Failed Calls ({selectedCampaign.failed_leads})
+              </button>
+            )}
+
             <button
               onClick={() => handleDelete(selectedCampaign.id)}
               className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm flex items-center gap-1"

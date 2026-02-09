@@ -530,6 +530,28 @@ async def delete_campaign(campaign_id: int):
     conn.commit()
     conn.close()
     return {"status": "success"}
+
+@app.post("/api/campaigns/{campaign_id}/retry")
+async def retry_campaign_failed(campaign_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 1. Resetear leads fallidos a pending
+    cursor.execute("""
+        UPDATE campaign_leads 
+        SET status = 'pending', updated_at = CURRENT_TIMESTAMP 
+        WHERE campaign_id = ? AND status = 'failed'
+    """, (campaign_id,))
+    
+    count = cursor.rowcount
+    
+    # 2. Reactivar campaña si estaba completada
+    if count > 0:
+        cursor.execute("UPDATE campaigns SET status = 'pending' WHERE id = ?", (campaign_id,))
+    
+    conn.commit()
+    conn.close()
+    return {"status": "success", "retried_count": count}
     
 @app.get("/api/results")
 async def get_results():
