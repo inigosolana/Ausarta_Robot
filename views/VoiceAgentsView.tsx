@@ -148,7 +148,7 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
       if (response.ok) {
         alert(`✅ Llamada iniciada! Sala: ${data.roomName}`);
         setShowCallDialog(false);
-        onStartCall();
+        // onStartCall(); // Deshabilitamos el overlay de "Live Call" porque es engañoso para llamadas telefónicas
       } else {
         alert(`❌ Error: ${data.detail}`);
       }
