@@ -77,13 +77,8 @@ class DefaultAgent(Agent):
         
         super().__init__(instructions=instructions)
 
-    async def on_enter(self, session: AgentSession) -> None:
-        """Se activa al entrar en la sala. Usamos para el saludo inicial."""
-        print(f"👋 [Agent] on_enter: Saludando con: {self.greeting}")
-        await session.generate_reply(
-            instructions=f"Eres Dakota. Acabas de entrar en la llamada. Saluda diciendo exactamente: '{self.greeting}'. No uses herramientas todavía.",
-            allow_interruptions=False
-        )
+    # Eliminado on_enter para evitar saludos duplicados con el entrypoint
+
 
 
     @function_tool(name="guardar_encuesta")
