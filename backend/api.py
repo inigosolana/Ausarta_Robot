@@ -756,6 +756,91 @@ async def colgar(datos: ColgarLlamada):
     finally:
         await lkapi.aclose()
 
+# --- BACKGROUND WORKER PARA CAMPAÑAS ---
+
+async def process_campaigns():
+    """Worker que revisa campañas pendientes y lanza las llamadas"""
+    while True:
+        try:
+            # 1. Buscar campañas pendientes
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            now = datetime.now().isoformat()
+            
+            # Buscar campañas que están pendientes y (no tienen hora O su hora ya pasó)
+            cursor.execute("""
+                SELECT * FROM campaigns 
+                WHERE status = 'pending' 
+                AND (scheduled_time IS NULL OR scheduled_time <= ?)
+            """, (now,))
+            
+            pending_campaigns = cursor.fetchall()
+            
+            for campaign in pending_campaigns:
+                campaign_id = campaign['id']
+                campaign_name = campaign['name']
+                agent_id = campaign['agent_id']
+                
+                print(f"🚀 [Worker] Iniciando campaña '{campaign_name}' (ID: {campaign_id})...")
+                
+                # Marcar como running
+                cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = ?", (campaign_id,))
+                conn.commit()
+                
+                # Obtener leads pendientes
+                cursor.execute("SELECT * FROM campaign_leads WHERE campaign_id = ? AND status = 'pending'", (campaign_id,))
+                leads = cursor.fetchall()
+                
+                print(f"📋 [Worker] {len(leads)} leads encontrados para campaña {campaign_id}")
+                
+                for lead in leads:
+                    phone = lead['phone_number']
+                    lead_id = lead['id']
+                    
+                    print(f"📞 [Worker] Llamando a {phone}...")
+                    
+                    try:
+                        # Lanzar llamada usando la función existente
+                        req = OutboundCallRequest(
+                            agentId=str(agent_id),
+                            phoneNumber=phone,
+                            agentName=f"Agent-{agent_id}"
+                        )
+                        # Llamada asíncrona pero esperamos para no saturar
+                        await make_outbound_call(req)
+                        
+                        # Actualizar estado del lead
+                        cursor.execute("UPDATE campaign_leads SET status = 'called', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (lead_id,))
+                        conn.commit()
+                        
+                        # Pequeña pausa entre llamadas para evitar rate limits
+                        await asyncio.sleep(2) 
+                        
+                    except Exception as e:
+                        print(f"❌ [Worker] Error llamando a {phone}: {e}")
+                        cursor.execute("UPDATE campaign_leads SET status = 'failed' WHERE id = ?", (lead_id,))
+                        conn.commit()
+                
+                # Marcar campaña como completada
+                cursor.execute("UPDATE campaigns SET status = 'completed' WHERE id = ?", (campaign_id,))
+                conn.commit()
+                print(f"✅ [Worker] Campaña '{campaign_name}' finalizada.")
+
+            cursor.close()
+            conn.close()
+            
+        except Exception as e:
+            print(f"⚠️ [Worker] Error en ciclo de campañas: {e}")
+            
+        # Esperar 10 segundos antes de la siguiente revisión
+        await asyncio.sleep(10)
+
+@app.on_event("startup")
+async def startup_event():
+    print("🌅 Iniciando API y Background Workers...")
+    asyncio.create_task(process_campaigns())
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
