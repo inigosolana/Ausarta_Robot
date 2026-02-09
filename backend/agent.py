@@ -174,6 +174,10 @@ async def entrypoint(ctx: JobContext):
     
     instructions = agent_config.get('instructions', "Eres un asistente de encuestas de calidad de Ausarta.")
     greeting = agent_config.get('greeting', "Hola, soy Dakota de Ausarta.")
+    
+    # PATCH: Forzar saludo sin nombre "Dakota"
+    if "Dakota" in greeting:
+        greeting = "Hola, le llamo de Ausarta para una encuesta rápida. ¿Tiene un minuto?"
 
     print(f"🎤 [Agent] Inicializando sesión con: LLM={llm_model}, TTS={tts_model}")
 
@@ -194,6 +198,7 @@ async def entrypoint(ctx: JobContext):
     instructions += """
     
     REGLAS CRÍTICAS DE COMPORTAMIENTO:
+    0. SALUDO: PRESÉNTATE COMO "Le llamo de Ausarta". NO digas "Soy Dakota". Si te preguntan quién eres, di "Le llamo de Ausarta para una encuesta de calidad".
     1. PRONUNCIACIÓN: Cuando digas el número 1, di SIEMPRE "uno". Nunca digas "un". Ejemplo incorrecto: "Tienes un 1". Ejemplo correcto: "Tienes un UNO".
     
     2. CIERRE RÁPIDO Y ABSOLUTO:
