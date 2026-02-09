@@ -76,13 +76,7 @@ class DefaultAgent(Agent):
         
         super().__init__(instructions=instructions)
 
-    async def on_enter(self, session: AgentSession) -> None:
-        # Saludo oficial obligatorio
-        print(f"👋 [Agent] Entrando en sesión. Saludando con: {self.greeting}")
-        await session.generate_reply(
-            instructions=f"Saluda ahora mismo con: {self.greeting}. No uses herramientas todavía.",
-            allow_interruptions=False
-        )
+
     @function_tool(name="guardar_encuesta")
     async def _http_tool_guardar_encuesta(
         self, 
@@ -178,6 +172,7 @@ async def entrypoint(ctx: JobContext):
     - Cuando digas el número 1, di SIEMPRE "uno".
     - Sé directo, educado y muy breve. Una encuesta de menos de 1 minuto.
     - Una vez recogido el comentario (o si dice que no tiene ninguno), di: "Muchas gracias por su tiempo. Que tenga un buen día. Adiós." y usa 'finalizar_llamada' inmediatamente.
+    - MUY IMPORTANTE: Mantén el flujo de la conversación por ti misma. Escucha al cliente y pasa a la siguiente pregunta sin esperar instrucciones externas.
     """
 
     # Extraer ID de la sala
@@ -194,14 +189,15 @@ async def entrypoint(ctx: JobContext):
         greeting = f"Hola {customer_name}, le llamo de Ausarta. ¿Tiene un minuto para una encuesta rápida?"
 
     try:
-        # Cargar VAD aquí mismo para evitar fallos de cache
-        vad = silero.VAD.load()
+        # Cargar VAD con parámetros sensibles
+        vad = silero.VAD.load(min_speech_duration=0.15, min_silence_duration=0.7)
         
         session = AgentSession(
             stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
             llm=openai.LLM(model=llm_model, base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY")),
             tts=inference.TTS(model=f"cartesia/{tts_model}", voice=tts_voice, language="es"),
             vad=vad,
+            preemptive_generation=True,
         )
 
         agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)
@@ -221,6 +217,12 @@ async def entrypoint(ctx: JobContext):
 
         print(f"🚀 [Agent] Iniciando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
+        
+        # Saludo inicial manual para arrancar el bucle
+        await session.generate_reply(
+            instructions=f"Eres Dakota. Saluda ahora mismo diciendo exactamente: '{greeting}'. No uses herramientas todavía.",
+            allow_interruptions=True
+        )
         
         # Al terminar la sesión (porque cuelguen), intentar guardar la transcripción final
         async def cleanup():
