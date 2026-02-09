@@ -76,9 +76,10 @@ class DefaultAgent(Agent):
             instructions=instructions,
         )
 
-    async def on_enter(self):
+    async def on_enter(self, session: AgentSession):
+        print(f"👋 [Agent] Entrando en sesión. Saludando con: {self.greeting}")
         # Forzamos al agente a saludar primero sin usar herramientas
-        await self.session.generate_reply(
+        await session.generate_reply(
             instructions=f"{self.greeting} No uses herramientas todavía.",
             allow_interruptions=False
         )
@@ -147,7 +148,7 @@ class DefaultAgent(Agent):
             return "error"
 
 def prewarm(proc: JobProcess):
-    proc.userdata["vad"] = silero.VAD.load(min_speech_duration=0.15, min_silence_duration=0.4)
+    proc.userdata["vad"] = silero.VAD.load(min_speech_duration=0.2, min_silence_duration=0.5)
 
 server = AgentServer(setup_fnc=prewarm)
 
@@ -199,6 +200,7 @@ async def entrypoint(ctx: JobContext):
             llm=openai.LLM(model=llm_model, base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY")),
             tts=inference.TTS(model=f"cartesia/{tts_model}", voice=tts_voice, language="es"),
             vad=ctx.proc.userdata["vad"],
+            preemptive_generation=True,
         )
 
         agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)
@@ -216,6 +218,7 @@ async def entrypoint(ctx: JobContext):
                 agent_instance.full_transcript += msg
                 print(f"📝 {msg.strip()}")
 
+        print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
         
         # Al terminar la sesión (porque cuelguen), intentar guardar la transcripción final
@@ -239,7 +242,12 @@ async def entrypoint(ctx: JobContext):
 
         ctx.add_shutdown_callback(cleanup)
 
-        await BackgroundAudioPlayer().start(room=ctx.room, agent_session=session)
+        # Restaurar audio de ambiente oficial
+        background_audio = BackgroundAudioPlayer(
+            ambient_sound=AudioConfig(BuiltinAudioClip.OFFICE_AMBIENCE, volume=0.05),
+        )
+        await background_audio.start(room=ctx.room, agent_session=session)
+        print("✅ [Agent] Sesión iniciada y hablando.")
         
     except Exception as e:
         print(f"❌ Error: {e}")
