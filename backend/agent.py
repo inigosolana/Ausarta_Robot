@@ -237,8 +237,21 @@ async def entrypoint(ctx: JobContext):
                 agent_instance.full_transcript += f"{msg}\n"
 
         print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
+        
+        # Iniciar sesión y esperar a que esté listo
         await session.start(agent=agent_instance, room=ctx.room)
-        print("✅ [Agent] Sesión de LiveKit iniciada y agente escuchando.")
+        print("✅ [Agent] Sesión de LiveKit conectada.")
+
+        # SALUDO FORZADO (Entrypoint) - Es el más fiable para SIP
+        print(f"👋 [Agent] Enviando saludo: {greeting}")
+        try:
+            await session.generate_reply(
+                instructions=f"Saluda ahora mismo diciendo exactamente: '{greeting}'. No uses herramientas.",
+                allow_interruptions=True
+            )
+            print("✅ [Agent] Saludo enviado correctamente.")
+        except Exception as e:
+            print(f"⚠️ [Agent] Error enviando saludo (posible falta de créditos/API): {e}")
 
         async def cleanup():
             if survey_id:
