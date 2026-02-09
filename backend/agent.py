@@ -163,6 +163,8 @@ async def entrypoint(ctx: JobContext):
     tts_voice = ai_config.get('tts_voice') or '6511153f-72f9-4314-a204-8d8d8afd646a'
     stt_model = ai_config.get('stt_model') or 'nova-2'
     
+    print(f"🛠️ [Agent] Usando modelos: LLM={llm_model}, TTS={tts_model}, STT={stt_model}")
+    
     instructions = """Tu nombre es Dakota. Le llamas de Ausarta para realizar una breve encuesta de satisfacción sobre un servicio reciente.
     
     MISION:
@@ -223,13 +225,26 @@ async def entrypoint(ctx: JobContext):
                 agent_instance.full_transcript += f"{msg}\n"
 
         print(f"🚀 [Agent] Iniciando sala {ctx.room.name}...")
-        await session.start(agent=agent_instance, room=ctx.room)
+        try:
+            await session.start(agent=agent_instance, room=ctx.room)
+            print("✅ [Agent] session.start exitoso")
+        except Exception as start_err:
+            print(f"❌ [Agent] Error en session.start: {start_err}")
+            raise start_err
         
         # Saludo forzado para asegurar que arranca el STT
-        await session.generate_reply(
-            instructions=f"Saluda ahora mismo con: {greeting}",
-            allow_interruptions=True
-        )
+        print(f"👋 [Agent] Intentando saludo inicial: {greeting}")
+        try:
+            await session.generate_reply(
+                instructions=f"Saluda ahora mismo con: {greeting}",
+                allow_interruptions=True
+            )
+            print("✅ [Agent] generate_reply (saludo) enviado")
+        except Exception as reply_err:
+            print(f"❌ [Agent] Error en generate_reply (POSIBLE FALTA DE CRÉDITOS): {reply_err}")
+            # Si falla Cartesia, intentamos informar por consola
+            if "cartesia" in str(reply_err).lower():
+                print("⚠️ [Agent] Cartesia parece estar fallando. Revisa tus créditos en cartesia.ai")
 
         async def cleanup():
             if survey_id:
