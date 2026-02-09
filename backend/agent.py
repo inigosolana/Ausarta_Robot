@@ -197,13 +197,13 @@ async def entrypoint(ctx: JobContext):
         greeting = f"Hola {customer_name}, le llamo de Ausarta. ¿Tiene un minuto para una encuesta rápida?"
 
     try:
-        # VAD más reactivo para respuestas cortas como "sí"
-        vad = silero.VAD.load(min_speech_duration=0.1, min_silence_duration=0.4)
+        # VAD estándar para evitar fallos de detección
+        vad = silero.VAD.load()
         
         session = AgentSession(
-            stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
+            stt=deepgram.STT(model=stt_model),
             llm=openai.LLM(model=llm_model, base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY")),
-            tts=inference.TTS(model=f"cartesia/{tts_model}", voice=tts_voice, language="es"),
+            tts=cartesia.TTS(model=tts_model, voice=tts_voice),
             vad=vad,
             preemptive_generation=True,
         )
@@ -212,29 +212,28 @@ async def entrypoint(ctx: JobContext):
         agent_instance.full_transcript = ""
         agent_instance.interaction_count = 0
 
-        # Capturar transcripción en tiempo real con más detalle
         @session.on("transcription_received")
         def on_transcription(transcript: inference.Transcription):
             if transcript.is_final:
                 role = "Agente" if transcript.participant == ctx.room.local_participant else "Cliente"
                 msg = f"{role}: {transcript.text}"
-                print(f"🎤 [Transcription] {msg}")
-                
+                print(f"🎤 {msg}")
                 if role == "Cliente":
                     agent_instance.interaction_count += 1
-                
-                agent_instance.full_transcript += msg + "\n"
+                agent_instance.full_transcript += f"{msg}\n"
 
-        print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
+        print(f"🚀 [Agent] Iniciando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
-        print("✅ [Agent] Sesión de LiveKit iniciada.")
         
-        # Al terminar la sesión (porque cuelguen), intentar guardar la transcripción final
+        # Saludo forzado para asegurar que arranca el STT
+        await session.generate_reply(
+            instructions=f"Saluda ahora mismo con: {greeting}",
+            allow_interruptions=True
+        )
+
         async def cleanup():
             if survey_id:
-                # Si el cliente nunca dijo nada, marcamos como fallida (IVR, buzón, colgó rápido)
                 final_status = 'completed' if agent_instance.interaction_count > 0 else 'failed'
-                
                 url = f"http://127.0.0.1:8001/guardar-encuesta"
                 payload = {
                     "id_encuesta": survey_id, 
@@ -248,12 +247,10 @@ async def entrypoint(ctx: JobContext):
 
         ctx.add_shutdown_callback(cleanup)
 
-        # Restaurar audio de ambiente oficial
         background_audio = BackgroundAudioPlayer(
             ambient_sound=AudioConfig(BuiltinAudioClip.OFFICE_AMBIENCE, volume=0.05),
         )
         await background_audio.start(room=ctx.room, agent_session=session)
-        print("✅ [Agent] Sesión iniciada y saludo enviado.")
         
     except Exception as e:
         print(f"❌ Error crítico: {e}")
