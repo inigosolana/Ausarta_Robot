@@ -278,33 +278,119 @@ async def validation_exception_handler(request: Request, exc: Exception):
 async def root():
     return {"message": "Ausarta Voice Agent API", "status": "running"}
 
-@app.get("/api/agent-config")
-async def get_agent_config():
+# --- DASHBOARD ENDPOINTS ---
+
+@app.get("/api/dashboard/stats")
+async def get_dashboard_stats():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM agent_config ORDER BY id DESC LIMIT 1")
-    row = cursor.fetchone()
-    conn.close()
-    if row: return dict(row)
-    return {}
+    
+    cursor.execute("SELECT COUNT(*) FROM encuestas")
+    total_calls = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM encuestas WHERE completada = 1")
+    completed_calls = cursor.fetchone()[0]
+    
+    # Pendientes: contar leads en estado 'pending' de todas las campañas
+    cursor.execute("SELECT COUNT(*) FROM campaign_leads WHERE status = 'pending'")
+    pending_leads = cursor.fetchone()[0]
 
-@app.post("/api/agent-config")
-async def update_agent_config(config: AgentConfigModel):
+    # Nota media (promedio de las 3 notas)
+    cursor.execute("""
+        SELECT AVG((puntuacion_comercial + puntuacion_instalador + puntuacion_rapidez) / 3.0) 
+        FROM encuestas WHERE completada = 1
+    """)
+    avg_score = cursor.fetchone()[0] or 0
+    
+    # Métricas de calidad individuales
+    cursor.execute("SELECT AVG(puntuacion_comercial) FROM encuestas WHERE completada = 1")
+    avg_comercial = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT AVG(puntuacion_instalador) FROM encuestas WHERE completada = 1")
+    avg_instalador = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT AVG(puntuacion_rapidez) FROM encuestas WHERE completada = 1")
+    avg_rapidez = cursor.fetchone()[0] or 0
+
+    conn.close()
+    
+    return {
+        "totalCalls": total_calls,
+        "completedCalls": completed_calls,
+        "averageScore": round(avg_score, 1),
+        "pendingLeads": pending_leads,
+        "averageComercial": round(avg_comercial, 1),
+        "averageInstalador": round(avg_instalador, 1),
+        "averageRapidez": round(avg_rapidez, 1)
+    }
+
+@app.get("/api/dashboard/recent-calls")
+async def get_recent_calls():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE agent_config 
-        SET name=?, use_case=?, description=?, instructions=?, greeting=?, updated_at=CURRENT_TIMESTAMP
-        WHERE id = (SELECT id FROM agent_config ORDER BY id DESC LIMIT 1)
-    """, (config.name, config.use_case, config.description, config.instructions, config.greeting))
-    if cursor.rowcount == 0:
-         cursor.execute("INSERT INTO agent_config (name, use_case, description, instructions, greeting) VALUES (?, ?, ?, ?, ?)",
-                       (config.name, config.use_case, config.description, config.instructions, config.greeting))
+        SELECT telefono, fecha, completada,
+               (CASE WHEN completada=1 THEN 'Completada' ELSE 'Incompleta' END) as estado,
+               puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez
+        FROM encuestas 
+        ORDER BY fecha DESC LIMIT 10
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [dict(row) for row in rows]
+
+# --- AGENT CONFIG ENDPOINTS ---
+
+@app.get("/api/agents")
+async def get_agents():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM agent_config")
+    rows = cursor.fetchall()
+    # Mapeo de campos DB -> Frontend (camelCase)
+    results = []
+    for row in rows:
+        results.append({
+            "id": row['id'],
+            "name": row['name'],
+            "useCase": row['use_case'],
+            "description": row['description'],
+            "instructions": row['instructions'],
+            "greeting": row['greeting']
+        })
+    conn.close()
+    return results
+
+@app.put("/api/agents/{agent_id}")
+async def update_agent(agent_id: int, config: AgentConfigModel):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Verificar si existe
+    cursor.execute("SELECT id FROM agent_config WHERE id = ?", (agent_id,))
+    if not cursor.fetchone():
+        # Si es el ID 1 y no existe, crearlo
+        if agent_id == 1:
+             cursor.execute("INSERT INTO agent_config (id, name, use_case, description, instructions, greeting) VALUES (1, ?, ?, ?, ?, ?)",
+                           (config.name, config.use_case, config.description, config.instructions, config.greeting))
+        else:
+             conn.close()
+             raise HTTPException(status_code=404, detail="Agent not found")
+    else:
+        cursor.execute("""
+            UPDATE agent_config 
+            SET name=?, use_case=?, description=?, instructions=?, greeting=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (config.name, config.use_case, config.description, config.instructions, config.greeting, agent_id))
+    
     conn.commit()
     conn.close()
     return {"status": "success"}
 
-@app.get("/api/ai-config")
+# --- AI CONFIG ENDPOINTS ---
+
+@app.get("/api/ai/config")
 async def get_ai_config():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -313,7 +399,7 @@ async def get_ai_config():
     conn.close()
     return dict(row) if row else {}
 
-@app.post("/api/ai-config")
+@app.post("/api/ai/config")
 async def update_ai_config(config: AIConfig):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -329,14 +415,26 @@ async def update_ai_config(config: AIConfig):
     conn.close()
     return {"status": "success"}
 
-@app.get("/api/agents")
-async def get_agents():
+# --- PROMPTS ENDPOINTS ---
+
+@app.get("/api/prompts")
+async def get_prompts():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name FROM agent_config")
+    cursor.execute("SELECT * FROM prompt_templates ORDER BY created_at DESC")
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+@app.post("/api/prompts")
+async def create_prompt(prompt: PromptTemplateModel):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO prompt_templates (name, description, content) VALUES (?, ?, ?)",
+                  (prompt.name, prompt.description, prompt.content))
+    conn.commit()
+    conn.close()
+    return {"status": "success"}
 
 # --- CAMPAIGNS ENDPOINTS ---
 
