@@ -7,20 +7,25 @@ from livekit import api
 
 load_dotenv()
 
-MI_MOVIL = "+34686024728"
-TRONCAL_ID = "ST_UBZcusTkNdtH"
-AGENT_NAME = "Dakota-1ef9" 
+# Configuración desde variables de entorno
+TARGET_PHONE = os.getenv("TARGET_PHONE_NUMBER")
+TRONCAL_ID = os.getenv("SIP_TRUNK_ID", "ST_UBZcusTkNdtH")
+AGENT_NAME = os.getenv("AGENT_NAME", "Dakota-1ef9")
+
+if not TARGET_PHONE:
+    print("⚠️ Error: La variable de entorno TARGET_PHONE_NUMBER no está definida.")
+    exit(1)
 
 # USAMOS LOCALHOST PORQUE ESTAMOS EN LA MISMA MÁQUINA
 URL_SERVIDOR = "http://127.0.0.1:8001"
 
 async def lanzar_todo():
-    print(f"\n💾 1. Contactando con servidor local para guardar {MI_MOVIL}...")
+    print(f"\n💾 1. Contactando con servidor local para guardar {TARGET_PHONE}...")
     
     id_ficha = None
     try:
         # Petición al endpoint /iniciar-encuesta
-        resp = requests.post(f"{URL_SERVIDOR}/iniciar-encuesta", json={"telefono": MI_MOVIL})
+        resp = requests.post(f"{URL_SERVIDOR}/iniciar-encuesta", json={"telefono": TARGET_PHONE})
         
         # --- DEBUG: VER QUÉ RESPONDE EL SERVIDOR ---
         print(f"   📡 Respuesta del servidor: {resp.text}") 
@@ -62,7 +67,7 @@ async def lanzar_todo():
         api.CreateSIPParticipantRequest(
             room_name=sala,
             sip_trunk_id=TRONCAL_ID,
-            sip_call_to=MI_MOVIL,
+            sip_call_to=TARGET_PHONE,
             participant_identity="Cliente",
         )
     )
