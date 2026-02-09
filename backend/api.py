@@ -249,6 +249,12 @@ class CampaignModel(BaseModel):
     scheduled_time: Optional[str] = None # ISO format
     status: str = "pending" # pending, running, completed, paused
 
+class CampaignUpdateModel(BaseModel):
+    name: Optional[str] = None
+    agent_id: Optional[int] = None
+    scheduled_time: Optional[str] = None
+    status: Optional[str] = None
+
 class CampaignLeadModel(BaseModel):
     phone_number: str
     customer_name: Optional[str] = None
@@ -573,6 +579,47 @@ async def delete_campaign(campaign_id: int):
     conn.commit()
     conn.close()
     return {"status": "success"}
+
+@app.put("/api/campaigns/{campaign_id}")
+async def update_campaign(campaign_id: int, config: CampaignUpdateModel):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 1. Verificar existencia
+    cursor.execute("SELECT id FROM campaigns WHERE id = ?", (campaign_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    # 2. Build Query
+    update_fields = []
+    params = []
+    
+    if config.name is not None:
+        update_fields.append("name = ?")
+        params.append(config.name)
+    
+    if config.agent_id is not None:
+        update_fields.append("agent_id = ?")
+        params.append(config.agent_id)
+        
+    if config.scheduled_time is not None:
+        update_fields.append("scheduled_time = ?")
+        params.append(config.scheduled_time)
+        
+    if config.status is not None:
+        update_fields.append("status = ?")
+        params.append(config.status)
+        
+    if update_fields:
+        update_fields.append("created_at = created_at") # Hack para actualizar timestamp si es necesario, aunque falta updated_at en tabla campaigns
+        sql = f"UPDATE campaigns SET {', '.join(update_fields)} WHERE id = ?"
+        params.append(campaign_id)
+        cursor.execute(sql, tuple(params))
+        conn.commit()
+        
+    conn.close()
+    return {"status": "success", "updated_fields": update_fields}
 
 @app.post("/api/campaigns/{campaign_id}/retry")
 async def retry_campaign_failed(campaign_id: int):

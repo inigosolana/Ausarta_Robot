@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import {
-  Plus, Upload, Clock, AlertCircle, History, Trash2, X
+  Plus, Upload, Clock, AlertCircle, History, Trash2, X, Edit2
 } from 'lucide-react';
 
 interface Campaign {
@@ -39,6 +39,47 @@ export function CampaignsView() {
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [campaignLeads, setCampaignLeads] = useState<Lead[]>([]);
   const [showDetails, setShowDetails] = useState(false);
+
+  // EDIT FEATURE
+  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editTime, setEditTime] = useState("");
+
+  const openEditModal = (camp: Campaign) => {
+    setEditingCampaign(camp);
+    setEditName(camp.name);
+    setEditTime(camp.scheduled_time ? new Date(camp.scheduled_time).toISOString().slice(0, 16) : "");
+  };
+
+  const handleUpdateCampaign = async () => {
+    if (!editingCampaign) return;
+    try {
+      const payload = {
+        name: editName,
+        scheduled_time: editTime ? new Date(editTime).toISOString() : null
+      };
+      const res = await fetch(`${API_URL}/api/campaigns/${editingCampaign.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        alert("Campaign updated!");
+        setEditingCampaign(null);
+        loadCampaigns();
+        if (selectedCampaign && selectedCampaign.id === editingCampaign.id) {
+          // Reload details if we are viewing the edited campaign
+          const updatedCamp = await (await fetch(`${API_URL}/api/campaigns/${editingCampaign.id}`)).json();
+          setSelectedCampaign(updatedCamp.campaign);
+        }
+      } else {
+        alert("Update failed");
+      }
+    } catch (e) {
+      alert("Error updating campaign");
+    }
+  };
 
   // Form State
   const [name, setName] = useState('');
@@ -253,6 +294,13 @@ export function CampaignsView() {
               <History className="w-4 h-4" /> Refresh
             </button>
 
+            <button
+              onClick={() => openEditModal(selectedCampaign)}
+              className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm flex items-center gap-1"
+            >
+              <Edit2 className="w-4 h-4" /> Edit
+            </button>
+
             {/* Retry Button - Only show if there are failed leads */}
             {(selectedCampaign.failed_leads || 0) > 0 && (
               <button
@@ -328,6 +376,69 @@ export function CampaignsView() {
             </tbody>
           </table>
         </div>
+
+        {/* EDIT CAMPAIGN MODAL */}
+        {editingCampaign && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <Edit2 className="w-5 h-5 text-blue-600" /> Edit Campaign
+                </h3>
+                <button
+                  onClick={() => setEditingCampaign(null)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  title="Cancel"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Campaign Name</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    placeholder="E.g. Customer Survey Q1"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Scheduled Time (Optional)</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="datetime-local"
+                      value={editTime}
+                      onChange={(e) => setEditTime(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">Leave empty to keep as is.</p>
+                </div>
+              </div>
+
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+                <button
+                  onClick={() => setEditingCampaign(null)}
+                  className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateCampaign}
+                  disabled={!editName}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-md transition-all flex items-center gap-2"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -529,13 +640,27 @@ export function CampaignsView() {
                   {campaign.created_at ? new Date(campaign.created_at).toLocaleDateString() : '-'}
                 </td>
                 <td className="px-6 py-4 text-right text-sm font-medium">
-                  {/* Action buttons (Delete handled via Details but shortcut could be here) */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDelete(campaign.id); }}
-                    className="text-gray-400 hover:text-red-600"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openEditModal(campaign); }}
+                      className="text-blue-600 hover:text-blue-900"
+                      title="Edit Campaign"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm('Delete campaign?')) {
+                          handleDelete(campaign.id);
+                        }
+                      }}
+                      className="text-red-600 hover:text-red-900"
+                      title="Delete Campaign"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
