@@ -73,6 +73,7 @@ class DefaultAgent(Agent):
         # Puerto 8001 para el Bridge local
         self.server_url = os.getenv("BRIDGE_SERVER_URL", "http://127.0.0.1:8001")
         self.greeting = greeting
+        self.current_scores = {} # Cache de seguridad
         
         super().__init__(instructions=instructions)
 
@@ -106,6 +107,12 @@ class DefaultAgent(Agent):
         transcript = ""
         if hasattr(self, 'full_transcript'):
             transcript = self.full_transcript
+
+        # Guardar en local por si cortan la llamada
+        if nota_comercial: self.current_scores["nota_comercial"] = nota_comercial
+        if nota_instalador: self.current_scores["nota_instalador"] = nota_instalador
+        if nota_rapidez: self.current_scores["nota_rapidez"] = nota_rapidez
+        if comentarios: self.current_scores["comentarios"] = comentarios
 
         payload = {
             "id_encuesta": id_encuesta,
@@ -181,6 +188,7 @@ async def entrypoint(ctx: JobContext):
     - Si el cliente cuelga pronto o dice que no puede hablar, no insistas. Simplemente guarda lo que tengas.
     - Cuando digas el número 1, di SIEMPRE "uno".
     - Sé directo, educado y muy breve. Una encuesta de menos de 1 minuto.
+    - Usa 'guardar_encuesta' INMEDIATAMENTE tras cada respuesta para registrar los datos. No esperes a terminar el guion.
     - Una vez recogido el comentario (o si dice que no tiene ninguno), di: "Muchas gracias por su tiempo. Que tenga un buen día. Adiós." y usa 'finalizar_llamada' inmediatamente.
     - MUY IMPORTANTE: Mantén el flujo de la conversación por ti misma. Escucha al cliente y pasa a la siguiente pregunta sin esperar instrucciones externas.
     """
@@ -253,7 +261,8 @@ async def entrypoint(ctx: JobContext):
                 payload = {
                     "id_encuesta": survey_id, 
                     "transcription": agent_instance.full_transcript,
-                    "status": final_status
+                    "status": final_status,
+                    **agent_instance.current_scores # Mandamos todo lo que tengamos acumulado
                 }
                 try:
                     async with aiohttp.ClientSession() as s:

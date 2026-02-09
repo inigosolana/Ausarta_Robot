@@ -832,20 +832,23 @@ async def guardar_encuesta(datos: FinEncuesta):
             update_fields.append("transcription = ?")
             params.append(datos.transcription)
 
-        # Determinar estado de 'completada'
-        # Si el agente dice 'failed', marcamos como NO completada (0)
-        # Si el agente dice 'completed' o no dice nada pero hay transcripción, marcamos como completada (1)
-        final_complete = 1
-        if datos.status == 'failed':
-            final_complete = 0
-        elif datos.transcription and "Cliente:" not in datos.transcription:
-            # Si no hay nada del cliente, podría ser una llamada fallida (buzón, IVR...)
-            # Pero para ser seguros, solo marcamos 0 si es explícito o muy corto.
-            pass
+        # Solo actualizamos el estado de 'completada' si se nos indica explícitamente un status
+        # (esto sucede en el cleanup final o cuando el agente decide terminar)
+        if datos.status is not None:
+            final_complete = 0 if datos.status == 'failed' else 1
+            update_fields.append("completada = ?")
+            params.append(final_complete)
+            
+            # Solo sincronizamos con campañas al finalizar de verdad
+            lead_status = 'called' if final_complete == 1 else 'failed'
+            cursor.execute("UPDATE campaign_leads SET status = ? WHERE call_id = ?", (lead_status, id_final))
+            
+            # Fallback por teléfono (para asegurar)
+            cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))
+            phone_res = cursor.fetchone()
+            if phone_res:
+                cursor.execute("UPDATE campaign_leads SET status = ? WHERE phone_number = ? AND status = 'pending'", (lead_status, phone_res[0]))
 
-        update_fields.append("completada = ?")
-        params.append(final_complete)
-        
         update_fields.append("updated_at = CURRENT_TIMESTAMP")
 
         if not update_fields:
@@ -855,19 +858,8 @@ async def guardar_encuesta(datos: FinEncuesta):
         params.append(id_final)
 
         cursor.execute(sql, tuple(params))
-        
-        # Sincronizar con campaign_leads
-        lead_status = 'called' if final_complete == 1 else 'failed'
-        cursor.execute("UPDATE campaign_leads SET status = ? WHERE call_id = ?", (lead_status, id_final))
-        
-        # Fallback por teléfono
-        cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))
-        phone_res = cursor.fetchone()
-        if phone_res:
-            cursor.execute("UPDATE campaign_leads SET status = ? WHERE phone_number = ? AND status = 'pending'", (lead_status, phone_res[0]))
-
         conn.commit()
-        print(f"🚀 [Guardar] ID {id_final}: completada={final_complete} (Status: {datos.status})")
+        print(f"🚀 [Guardar] ID {id_final}: status_sent={datos.status}")
         return {"status": "success"}
     finally:
         cursor.close()
