@@ -278,8 +278,67 @@ async def validation_exception_handler(request: Request, exc: Exception):
 async def root():
     return {"message": "Ausarta Voice Agent API", "status": "running"}
 
-# ... [MANTENER EL RESTO DE ENDPOINTS IGUAL HASTA CAMPAIGNS] ...
-# (Para no pegar 500 lineas, solo modifico la parte de campaigns y llamadas)
+@app.get("/api/agent-config")
+async def get_agent_config():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM agent_config ORDER BY id DESC LIMIT 1")
+    row = cursor.fetchone()
+    conn.close()
+    if row: return dict(row)
+    return {}
+
+@app.post("/api/agent-config")
+async def update_agent_config(config: AgentConfigModel):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE agent_config 
+        SET name=?, use_case=?, description=?, instructions=?, greeting=?, updated_at=CURRENT_TIMESTAMP
+        WHERE id = (SELECT id FROM agent_config ORDER BY id DESC LIMIT 1)
+    """, (config.name, config.use_case, config.description, config.instructions, config.greeting))
+    if cursor.rowcount == 0:
+         cursor.execute("INSERT INTO agent_config (name, use_case, description, instructions, greeting) VALUES (?, ?, ?, ?, ?)",
+                       (config.name, config.use_case, config.description, config.instructions, config.greeting))
+    conn.commit()
+    conn.close()
+    return {"status": "success"}
+
+@app.get("/api/ai-config")
+async def get_ai_config():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM ai_config ORDER BY id DESC LIMIT 1")
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+@app.post("/api/ai-config")
+async def update_ai_config(config: AIConfig):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE ai_config 
+        SET llm_provider=?, llm_model=?, tts_provider=?, tts_model=?, tts_voice=?, stt_provider=?, stt_model=?, language=?, updated_at=CURRENT_TIMESTAMP
+        WHERE id = (SELECT id FROM ai_config ORDER BY id DESC LIMIT 1)
+    """, (config.llm_provider, config.llm_model, config.tts_provider, config.tts_model, config.tts_voice, config.stt_provider, config.stt_model, config.language))
+    if cursor.rowcount == 0:
+        cursor.execute("INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                      (config.llm_provider, config.llm_model, config.tts_provider, config.tts_model, config.tts_voice, config.stt_provider, config.stt_model, config.language))
+    conn.commit()
+    conn.close()
+    return {"status": "success"}
+
+@app.get("/api/agents")
+async def get_agents():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM agent_config")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+# --- CAMPAIGNS ENDPOINTS ---
 
 @app.post("/api/campaigns")
 async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel]):

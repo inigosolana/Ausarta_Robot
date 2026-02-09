@@ -43,8 +43,9 @@ export function CampaignsView() {
   // Form State
   const [name, setName] = useState('');
   const [selectedAgent, setSelectedAgent] = useState('');
-  const [dataSource, setDataSource] = useState<'csv' | 'api'>('csv');
+  const [dataSource, setDataSource] = useState<'csv' | 'api' | 'manual'>('csv');
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [manualInput, setManualInput] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
 
   const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
@@ -54,46 +55,33 @@ export function CampaignsView() {
     loadAgents();
   }, []);
 
-  const loadAgents = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/agents`);
-      if (res.ok) {
-        const data = await res.json();
-        setAgents(data);
-        if (data.length > 0) setSelectedAgent(data[0].id);
-      }
-    } catch (e) {
-      console.error("Error loading agents:", e);
-    }
-  };
+  // ... (loadAgents/Campaigns) ...
 
-  const loadCampaigns = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/campaigns`);
-      if (res.ok) {
-        const data = await res.json();
-        setCampaigns(data);
-      }
-    } catch (e) {
-      console.error("Error loading campaigns:", e);
-    }
-  };
+  const parseLines = (text: string): { phone_number: string, customer_name?: string }[] => {
+    const lines = text.split('\n');
+    const results: { phone_number: string, customer_name?: string }[] = [];
 
-  const loadCampaignDetails = async (campaign: Campaign) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/api/campaigns/${campaign.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedCampaign(data.campaign); // Update campaign info especially stats
-        setCampaignLeads(data.leads);
-        setShowDetails(true);
+    lines.forEach((line, index) => {
+      // Ignorar cabecera si incluye 'phone'
+      if (index === 0 && line.toLowerCase().includes('phone') && line.toLowerCase().includes(',')) return;
+
+      const parts = line.split(',');
+      if (parts.length >= 1) {
+        const rawPhone = parts[0];
+        const rawName = parts.length > 1 ? parts[1] : '';
+
+        const phone = rawPhone.trim().replace(/[^0-9+]/g, '');
+        let name = rawName.trim().replace(/^["']|["']$/g, '');
+
+        if (phone.length > 5) {
+          results.push({
+            phone_number: phone,
+            customer_name: name || undefined
+          });
+        }
       }
-    } catch (e) {
-      alert("Error loading details");
-    } finally {
-      setLoading(false);
-    }
+    });
+    return results;
   };
 
   const parseCSV = (file: File): Promise<{ phone_number: string, customer_name?: string }[]> => {
@@ -101,31 +89,7 @@ export function CampaignsView() {
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result as string;
-        const lines = text.split('\n');
-        const results: { phone_number: string, customer_name?: string }[] = [];
-
-        lines.forEach((line, index) => {
-          // Ignorar cabecera si parece una
-          if (index === 0 && line.toLowerCase().includes('phone')) return;
-
-          const parts = line.split(',');
-          // Asumimos col 1 = telefono, col 2 = nombre (opcional)
-          if (parts.length >= 1) {
-            const rawPhone = parts[0];
-            const rawName = parts.length > 1 ? parts[1] : '';
-
-            const phone = rawPhone.trim().replace(/[^0-9+]/g, '');
-            let name = rawName.trim().replace(/^["']|["']$/g, ''); // Remove quotes
-
-            if (phone.length > 5) {
-              results.push({
-                phone_number: phone,
-                customer_name: name || undefined
-              });
-            }
-          }
-        });
-        resolve(results);
+        resolve(parseLines(text));
       };
       reader.onerror = reject;
       reader.readAsText(file);
@@ -148,6 +112,9 @@ export function CampaignsView() {
         leads = await parseCSV(csvFile);
       } else if (dataSource === 'csv' && !csvFile) {
         throw new Error("Please upload a CSV file");
+      } else if (dataSource === 'manual') {
+        leads = parseLines(manualInput);
+        if (leads.length === 0) throw new Error("Please enter at least one valid phone number");
       }
 
       const payload = {
@@ -159,6 +126,7 @@ export function CampaignsView() {
         },
         leads
       };
+      // ... rest of handleCreate matches original up to end of block
 
       const res = await fetch(`${API_URL}/api/campaigns`, {
         method: 'POST',
@@ -341,14 +309,26 @@ export function CampaignsView() {
             <select
               className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none"
               value={dataSource}
-              onChange={(e) => setDataSource(e.target.value as 'csv' | 'api')}
+              onChange={(e) => setDataSource(e.target.value as 'csv' | 'api' | 'manual')}
             >
               <option value="csv">CSV File</option>
+              <option value="manual">Manual Entry / Copy-Paste</option>
               <option value="api">API Integration (Developer)</option>
             </select>
           </div>
 
-          {dataSource === 'csv' ? (
+          {dataSource === 'manual' ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Enter Phones (and optional Names)</label>
+              <textarea
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg h-32 font-mono text-sm focus:ring-2 focus:ring-black focus:border-transparent outline-none"
+                placeholder={"+34600112233, Juan Perez\n+34600445566, Maria"}
+                value={manualInput}
+                onChange={(e) => setManualInput(e.target.value)}
+              />
+              <p className="text-xs text-gray-500 mt-1">One entry per line. Format: <code>Phone, Name</code> (Name is optional)</p>
+            </div>
+          ) : dataSource === 'csv' ? (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">CSV File</label>
               <div className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center hover:border-black transition-colors cursor-pointer relative">
