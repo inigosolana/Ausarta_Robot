@@ -640,20 +640,68 @@ async def guardar_encuesta(datos: FinEncuesta):
                 id_final = res[0]
                 print(f"💡 ¡ENCONTRADO! Usaremos la ficha {id_final}.")
             else:
+                # Fallback: última ficha creada (aunque esté cerrada, para corregir)
                 cursor.execute("SELECT id FROM encuestas ORDER BY id DESC LIMIT 1")
                 res_last = cursor.fetchone()
                 if res_last: id_final = res_last[0]
 
         if not id_final: return {"status": "error", "msg": "No ID found"}
 
-        cursor.execute(
-            """UPDATE encuestas 
-               SET puntuacion_comercial=?, puntuacion_instalador=?, puntuacion_rapidez=?, comentarios=?, completada=1, updated_at=CURRENT_TIMESTAMP
-               WHERE id=?""",
-            (clean_nota(datos.nota_comercial), clean_nota(datos.nota_instalador), clean_nota(datos.nota_rapidez), datos.comentarios, id_final)
+        # Dynamic Update Query Construction
+        update_fields = []
+        params = []
+
+        if datos.nota_comercial is not None:
+            val = clean_nota(datos.nota_comercial)
+            if val is not None:
+                update_fields.append("puntuacion_comercial = ?")
+                params.append(val)
+        
+        if datos.nota_instalador is not None:
+            val = clean_nota(datos.nota_instalador)
+            if val is not None:
+                update_fields.append("puntuacion_instalador = ?")
+                params.append(val)
+
+        if datos.nota_rapidez is not None:
+            val = clean_nota(datos.nota_rapidez)
+            if val is not None:
+                update_fields.append("puntuacion_rapidez = ?")
+                params.append(val)
+
+        if datos.comentarios is not None and datos.comentarios != "Sin comentarios":
+            update_fields.append("comentarios = ?")
+            params.append(datos.comentarios)
+
+        # Determinar si está completa (si tenemos los 3 valores)
+        # Check current values first to combine with new ones
+        cursor.execute("SELECT puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez FROM encuestas WHERE id = ?", (id_final,))
+        current_vals = cursor.fetchone()
+        
+        # Helper to check if we have a value either in DB or in current request
+        def has_val(db_idx, req_val):
+            return (current_vals[db_idx] is not None) or (req_val is not None)
+
+        is_complete = (
+            has_val(0, datos.nota_comercial) and 
+            has_val(1, datos.nota_instalador) and 
+            has_val(2, datos.nota_rapidez)
         )
+
+        if is_complete:
+            update_fields.append("completada = 1")
+        
+        update_fields.append("updated_at = CURRENT_TIMESTAMP")
+
+        if not update_fields:
+            return {"status": "skipped", "msg": "No data to update"}
+
+        sql = f"UPDATE encuestas SET {', '.join(update_fields)} WHERE id = ?"
+        params.append(id_final)
+
+        cursor.execute(sql, tuple(params))
         conn.commit()
-        print(f"🚀 ¡EXITO! Datos guardados en ficha {id_final}.")
+        print(f"🚀 ¡EXITO! Datos guardados parcialmente en ficha {id_final}. Completa: {is_complete}")
         return {"status": "success"}
     finally:
         cursor.close()

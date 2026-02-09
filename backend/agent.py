@@ -85,9 +85,19 @@ class DefaultAgent(Agent):
 
     @function_tool(name="guardar_encuesta")
     async def _http_tool_guardar_encuesta(
-        self, context: RunContext, id_encuesta: int, nota_comercial: int, nota_instalador: int, nota_rapidez: int, comentarios: Optional[str] = None
+        self, 
+        context: RunContext, 
+        id_encuesta: int, 
+        nota_comercial: Optional[int] = None, 
+        nota_instalador: Optional[int] = None, 
+        nota_rapidez: Optional[int] = None, 
+        comentarios: Optional[str] = None
     ) -> str | None:
-        """Guarda los datos de la encuesta recibidos del usuario."""
+        """
+        Guarda los datos de la encuesta recibidos del usuario.
+        PUEDES y DEBES llamar a esta función cada vez que obtengas un dato nuevo.
+        No es necesario enviar todos los datos a la vez. Envía solo lo que tengas.
+        """
         print(f"🛠️ [Tool] Ejecutando guardar_encuesta: ID={id_encuesta}, Notas=[{nota_comercial}, {nota_instalador}, {nota_rapidez}]")
         context.disallow_interruptions()
         url = f"{self.server_url}/guardar-encuesta"
@@ -149,6 +159,18 @@ async def entrypoint(ctx: JobContext):
     greeting = agent_config.get('greeting', "Hola, soy Dakota de Ausarta.")
 
     print(f"🎤 [Agent] Inicializando sesión con: LLM={llm_model}, TTS={tts_model}")
+
+    # Extract ID from room name (e.g. encuesta_123)
+    import re
+    survey_id = None
+    try:
+        match = re.search(r'encuesta_(\d+)', ctx.room.name)
+        if match:
+            survey_id = match.group(1)
+            print(f"🆔 Survey ID detected: {survey_id}")
+            instructions += f"\n\nCONTEXTO DE SISTEMA:\n- El ID de esta encuesta es: {survey_id}.\n- DEBES usar este ID ({survey_id}) en cada llamada a la herramienta 'guardar_encuesta'."
+    except Exception as e:
+        print(f"⚠️ Error extracting survey ID: {e}")
 
     try:
         session = AgentSession(

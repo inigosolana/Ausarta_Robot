@@ -142,25 +142,41 @@ const ResultsView: React.FC = () => {
                                             </span>
                                         ) : (
                                             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-50 text-yellow-700 border border-yellow-100">
-                                                Incomplete
+                                                Partial / Incomplete
                                             </span>
                                         )}
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex items-center justify-center gap-2">
-                                            <span className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold ${getScoreColor(row.puntuacion_comercial)}`} title="Comercial">
-                                                {row.puntuacion_comercial ?? '-'}
-                                            </span>
-                                            <span className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold ${getScoreColor(row.puntuacion_instalador)}`} title="Instalador">
-                                                {row.puntuacion_instalador ?? '-'}
-                                            </span>
-                                            <span className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold ${getScoreColor(row.puntuacion_rapidez)}`} title="Rapidez">
-                                                {row.puntuacion_rapidez ?? '-'}
-                                            </span>
+                                            <div className="flex flex-col items-center">
+                                                <span className="text-[10px] text-gray-400 mb-0.5">COM</span>
+                                                <span className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shadow-sm ${getScoreColor(row.puntuacion_comercial)}`}>
+                                                    {row.puntuacion_comercial ?? '-'}
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-col items-center">
+                                                <span className="text-[10px] text-gray-400 mb-0.5">INS</span>
+                                                <span className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shadow-sm ${getScoreColor(row.puntuacion_instalador)}`}>
+                                                    {row.puntuacion_instalador ?? '-'}
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-col items-center">
+                                                <span className="text-[10px] text-gray-400 mb-0.5">RAP</span>
+                                                <span className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shadow-sm ${getScoreColor(row.puntuacion_rapidez)}`}>
+                                                    {row.puntuacion_rapidez ?? '-'}
+                                                </span>
+                                            </div>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 text-gray-600 max-w-xs truncate" title={row.comentarios || ""}>
-                                        {row.comentarios || <span className="text-gray-300 italic">No comments</span>}
+                                    <td className="px-6 py-4">
+                                        {row.comentarios && row.comentarios !== "Sin comentarios" ? (
+                                            <div className="bg-yellow-50 border border-yellow-100 p-3 rounded-lg text-sm text-gray-800 italic relative">
+                                                <span className="absolute top-2 left-2 text-yellow-300 text-xl leading-none">"</span>
+                                                <p className="pl-4 pr-2">{row.comentarios}</p>
+                                            </div>
+                                        ) : (
+                                            <span className="text-gray-300 italic text-xs">No highlighted comments</span>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
