@@ -293,16 +293,12 @@ async def get_dashboard_stats():
     
     # Pendientes: contar leads en estado 'pending' de todas las campañas
     cursor.execute("SELECT COUNT(*) FROM campaign_leads WHERE status = 'pending'")
-    pending_leads = cursor.fetchone()[0]
+    pending_calls = cursor.fetchone()[0]
 
-    # Nota media (promedio de las 3 notas)
-    cursor.execute("""
-        SELECT AVG((puntuacion_comercial + puntuacion_instalador + puntuacion_rapidez) / 3.0) 
-        FROM encuestas WHERE completada = 1
-    """)
-    avg_score = cursor.fetchone()[0] or 0
+    # Scores
+    cursor.execute("SELECT AVG((puntuacion_comercial + puntuacion_instalador + puntuacion_rapidez) / 3.0) FROM encuestas WHERE completada = 1")
+    avg_overall = cursor.fetchone()[0] or 0
     
-    # Métricas de calidad individuales
     cursor.execute("SELECT AVG(puntuacion_comercial) FROM encuestas WHERE completada = 1")
     avg_comercial = cursor.fetchone()[0] or 0
     
@@ -314,23 +310,26 @@ async def get_dashboard_stats():
 
     conn.close()
     
+    # Adaptado a la interfaz DashboardStats de DashboardView.tsx
     return {
-        "totalCalls": total_calls,
-        "completedCalls": completed_calls,
-        "averageScore": round(avg_score, 1),
-        "pendingLeads": pending_leads,
-        "averageComercial": round(avg_comercial, 1),
-        "averageInstalador": round(avg_instalador, 1),
-        "averageRapidez": round(avg_rapidez, 1)
+        "total_calls": total_calls,
+        "completed_calls": completed_calls,
+        "pending_calls": pending_calls,
+        "avg_scores": {
+            "comercial": round(avg_comercial, 1),
+            "instalador": round(avg_instalador, 1),
+            "rapidez": round(avg_rapidez, 1),
+            "overall": round(avg_overall, 1)
+        }
     }
 
 @app.get("/api/dashboard/recent-calls")
 async def get_recent_calls():
     conn = get_db_connection()
     cursor = conn.cursor()
+    # Seleccionamos ID también
     cursor.execute("""
-        SELECT telefono, fecha, completada,
-               (CASE WHEN completada=1 THEN 'Completada' ELSE 'Incompleta' END) as estado,
+        SELECT id, telefono, fecha, completada,
                puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez
         FROM encuestas 
         ORDER BY fecha DESC LIMIT 10
@@ -338,7 +337,21 @@ async def get_recent_calls():
     rows = cursor.fetchall()
     conn.close()
     
-    return [dict(row) for row in rows]
+    # Adaptado a la interfaz Call de DashboardView.tsx
+    results = []
+    for row in rows:
+        results.append({
+            "id": row['id'],
+            "phone": row['telefono'],
+            "date": row['fecha'],
+            "status": "completed" if row['completada'] else "pending",
+            "scores": {
+                "comercial": row['puntuacion_comercial'],
+                "instalador": row['puntuacion_instalador'],
+                "rapidez": row['puntuacion_rapidez']
+            }
+        })
+    return results
 
 # --- AGENT CONFIG ENDPOINTS ---
 
