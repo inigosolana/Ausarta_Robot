@@ -462,7 +462,70 @@ async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel
         cursor.close()
         conn.close()
 
-# ... [GET CAMPAIGNS SE MANTIENE] ...
+@app.get("/api/campaigns")
+async def get_campaigns():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Join con subqueries para contar leads
+    cursor.execute("""
+        SELECT 
+            c.*,
+            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id) as total_leads,
+            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('called', 'completed')) as called_leads,
+            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'failed') as failed_leads,
+            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'pending') as pending_leads
+        FROM campaigns c
+        ORDER BY c.created_at DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+@app.get("/api/campaigns/{campaign_id}")
+async def get_campaign(campaign_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT 
+            c.*,
+            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id) as total_leads,
+            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('called', 'completed')) as called_leads,
+            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'failed') as failed_leads,
+            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'pending') as pending_leads
+        FROM campaigns c
+        WHERE c.id = ?
+    """, (campaign_id,))
+    campaign = cursor.fetchone()
+    
+    if not campaign:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    cursor.execute("SELECT * FROM campaign_leads WHERE campaign_id = ?", (campaign_id,))
+    leads = cursor.fetchall()
+    conn.close()
+    
+    return {"campaign": dict(campaign), "leads": [dict(l) for l in leads]}
+
+@app.delete("/api/campaigns/{campaign_id}")
+async def delete_campaign(campaign_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM campaign_leads WHERE campaign_id = ?", (campaign_id,))
+    cursor.execute("DELETE FROM campaigns WHERE id = ?", (campaign_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "success"}
+    
+@app.get("/api/results")
+async def get_results():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM encuestas ORDER BY fecha DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 @app.post("/api/calls/outbound")
 async def make_outbound_call(call_request: OutboundCallRequest):
