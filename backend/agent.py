@@ -76,6 +76,14 @@ class DefaultAgent(Agent):
         
         super().__init__(instructions=instructions)
 
+    async def on_enter(self, session: AgentSession) -> None:
+        """Se activa al entrar en la sala. Usamos para el saludo inicial."""
+        print(f"👋 [Agent] on_enter: Saludando con: {self.greeting}")
+        await session.generate_reply(
+            instructions=f"Eres Dakota. Acabas de entrar en la llamada. Saluda diciendo exactamente: '{self.greeting}'. No uses herramientas todavía.",
+            allow_interruptions=False
+        )
+
 
     @function_tool(name="guardar_encuesta")
     async def _http_tool_guardar_encuesta(
@@ -189,8 +197,8 @@ async def entrypoint(ctx: JobContext):
         greeting = f"Hola {customer_name}, le llamo de Ausarta. ¿Tiene un minuto para una encuesta rápida?"
 
     try:
-        # Cargar VAD con parámetros sensibles
-        vad = silero.VAD.load(min_speech_duration=0.15, min_silence_duration=0.7)
+        # VAD más reactivo para respuestas cortas como "sí"
+        vad = silero.VAD.load(min_speech_duration=0.1, min_silence_duration=0.4)
         
         session = AgentSession(
             stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
@@ -204,25 +212,22 @@ async def entrypoint(ctx: JobContext):
         agent_instance.full_transcript = ""
         agent_instance.interaction_count = 0
 
-        # Capturar transcripción en tiempo real
+        # Capturar transcripción en tiempo real con más detalle
         @session.on("transcription_received")
         def on_transcription(transcript: inference.Transcription):
             if transcript.is_final:
                 role = "Agente" if transcript.participant == ctx.room.local_participant else "Cliente"
+                msg = f"{role}: {transcript.text}"
+                print(f"🎤 [Transcription] {msg}")
+                
                 if role == "Cliente":
                     agent_instance.interaction_count += 1
-                msg = f"{role}: {transcript.text}\n"
-                agent_instance.full_transcript += msg
-                print(f"📝 {msg.strip()}")
+                
+                agent_instance.full_transcript += msg + "\n"
 
-        print(f"🚀 [Agent] Iniciando sala {ctx.room.name}...")
+        print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
-        
-        # Saludo inicial manual para arrancar el bucle
-        await session.generate_reply(
-            instructions=f"Eres Dakota. Saluda ahora mismo diciendo exactamente: '{greeting}'. No uses herramientas todavía.",
-            allow_interruptions=True
-        )
+        print("✅ [Agent] Sesión de LiveKit iniciada.")
         
         # Al terminar la sesión (porque cuelguen), intentar guardar la transcripción final
         async def cleanup():
