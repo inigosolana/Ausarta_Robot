@@ -55,7 +55,51 @@ export function CampaignsView() {
     loadAgents();
   }, []);
 
-  // ... (loadAgents/Campaigns) ...
+  const loadAgents = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/agents`);
+      if (res.ok) {
+        const data = await res.json();
+        setAgents(Array.isArray(data) ? data : []);
+        if (Array.isArray(data) && data.length > 0) setSelectedAgent(data[0].id);
+      }
+    } catch (e) {
+      console.error("Error loading agents:", e);
+      setAgents([]);
+    }
+  };
+
+  const loadCampaigns = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/campaigns`);
+      if (res.ok) {
+        const data = await res.json();
+        setCampaigns(Array.isArray(data) ? data : []);
+      } else {
+        setCampaigns([]);
+      }
+    } catch (e) {
+      console.error("Error loading campaigns:", e);
+      setCampaigns([]);
+    }
+  };
+
+  const loadCampaignDetails = async (campaign: Campaign) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/campaigns/${campaign.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedCampaign(data.campaign);
+        setCampaignLeads(data.leads || []);
+        setShowDetails(true);
+      }
+    } catch (e) {
+      alert("Error loading details");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const parseLines = (text: string): { phone_number: string, customer_name?: string }[] => {
     const lines = text.split('\n');
