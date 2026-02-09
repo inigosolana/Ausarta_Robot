@@ -141,15 +141,30 @@ const ResultsView: React.FC = () => {
                                         {new Date(row.fecha).toLocaleDateString()} <span className="text-xs text-gray-400">{new Date(row.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                     </td>
                                     <td className="px-6 py-4 text-center">
-                                        {row.completada ? (
-                                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100">
-                                                Completed
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-100">
-                                                Failed / No interaction
-                                            </span>
-                                        )}
+                                        {(() => {
+                                            const scores = [row.puntuacion_comercial, row.puntuacion_instalador, row.puntuacion_rapidez];
+                                            const count = scores.filter(s => s !== null).length;
+
+                                            if (row.completada && count === 3) {
+                                                return (
+                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">
+                                                        Full Success
+                                                    </span>
+                                                );
+                                            } else if (row.completada && count > 0) {
+                                                return (
+                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                                                        Partial ({count}/3)
+                                                    </span>
+                                                );
+                                            } else {
+                                                return (
+                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-100">
+                                                        Failed / Unreached
+                                                    </span>
+                                                );
+                                            }
+                                        })()}
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex items-center justify-center gap-2">
