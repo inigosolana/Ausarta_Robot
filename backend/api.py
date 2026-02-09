@@ -713,8 +713,9 @@ async def colgar(datos: ColgarLlamada):
     print(f"✂️  Petición de colgar recibida.")
     
     # Pausa para dar tiempo a la despedida
-    print("⏳ Esperando 2 segundos para dar tiempo a la despedida...")
-    await asyncio.sleep(2) 
+    # Pausa para dar tiempo a la despedida
+    print("⏳ Esperando 0.5 segundos para dar tiempo a la despedida...")
+    await asyncio.sleep(0.5) 
 
     lkapi = api.LiveKitAPI(
         os.getenv("LIVEKIT_URL"),

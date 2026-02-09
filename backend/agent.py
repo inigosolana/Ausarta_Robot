@@ -193,6 +193,8 @@ async def entrypoint(ctx: JobContext):
        - Di: "Perfecto, muchas gracias. Adiós."
        - Y EJECUTA LA HERRAMIENTA 'finalizar_llamada' AL INSTANTE.
        - NO digas "Que tenga un buen día" esperando respuesta. CORTA YA.
+    
+    3. IDIOMA: SIEMPRE EN ESPAÑOL. PROHIBIDO DECIR "THANK YOU". SI LA CONVERSACIÓN ACABA, DI "ADIÓS" Y CUELGA.
     """
     # -------------------------------------
 
