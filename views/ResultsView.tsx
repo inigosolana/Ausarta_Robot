@@ -21,7 +21,7 @@ const ResultsView: React.FC = () => {
     const loadResults = async () => {
         setLoading(true);
         try {
-            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8002';
             const res = await fetch(`${API_URL}/api/results`);
             if (res.ok) {
                 const data = await res.json();

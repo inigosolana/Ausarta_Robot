@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 
 // API URL
-const API_URL = import.meta.env.VITE_API_URL || window.location.origin + '/api' || 'http://localhost:8001/api';
+const API_URL = import.meta.env.VITE_API_URL || window.location.origin + '/api' || 'http://localhost:8002/api';
 
 interface DashboardStats {
     total_calls: number;
