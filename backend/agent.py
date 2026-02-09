@@ -88,9 +88,9 @@ class DefaultAgent(Agent):
         self, 
         context: RunContext, 
         id_encuesta: int, 
-        nota_comercial: Optional[int] = None, 
-        nota_instalador: Optional[int] = None, 
-        nota_rapidez: Optional[int] = None, 
+        nota_comercial: Optional[str | int] = None, 
+        nota_instalador: Optional[str | int] = None, 
+        nota_rapidez: Optional[str | int] = None, 
         comentarios: Optional[str] = None
     ) -> str | None:
         """
@@ -101,8 +101,16 @@ class DefaultAgent(Agent):
         print(f"🛠️ [Tool] Ejecutando guardar_encuesta: ID={id_encuesta}, Notas=[{nota_comercial}, {nota_instalador}, {nota_rapidez}]")
         context.disallow_interruptions()
         url = f"{self.server_url}/guardar-encuesta"
+        
+        # Ensure ID is int
+        nav_id = id_encuesta
+        if isinstance(nav_id, str):
+            import re
+            nums = re.findall(r'\d+', nav_id)
+            if nums: nav_id = int(nums[0])
+            
         payload = {
-            "id_encuesta": id_encuesta,
+            "id_encuesta": nav_id,
             "nota_comercial": nota_comercial,
             "nota_instalador": nota_instalador,
             "nota_rapidez": nota_rapidez,

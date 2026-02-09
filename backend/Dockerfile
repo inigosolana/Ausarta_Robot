@@ -26,7 +26,7 @@ EXPOSE 8001
 
 # Variables de entorno por defecto
 ENV PYTHONUNBUFFERED=1
-ENV BRIDGE_SERVER_URL=http://0.0.0.0:8001
+ENV BRIDGE_SERVER_URL=http://127.0.0.1:8001
 
 # Script de inicio que lanza API y Agent
 COPY start.sh /start.sh
