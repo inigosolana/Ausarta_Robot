@@ -492,7 +492,38 @@ async def get_campaigns():
     """)
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    
+    results = []
+    for row in rows:
+        d = dict(row)
+        
+        # Corregir STATUS: Si hay fallidos, no está completed
+        # Prioridad: running > failed > completed > pending
+        # Pero conservamos el status original si es 'running' o 'paused' explícitamente
+        
+        real_status = d['status']
+        if d['pending_leads'] == 0:
+            if d['failed_leads'] > 0:
+                # Si todo terminó pero hubo fallos
+                real_status = 'completed_with_errors' # Ojo, frontend quizas no tenga color para esto
+            else:
+                 real_status = 'completed'
+        elif d['called_leads'] > 0:
+             if real_status == 'pending': real_status = 'running'
+        
+        # Simplificación para el frontend existente:
+        if d['failed_leads'] > 0 and d['pending_leads'] == 0:
+            d['status'] = 'paused' # Para indicar que requiere atención (Retry)
+        elif d['pending_leads'] == 0:
+            d['status'] = 'completed'
+        
+        # Corregir HORA: Añadir Z para indicar UTC
+        if d['created_at']: d['created_at'] = f"{d['created_at']}Z"
+        if d['scheduled_time']: d['scheduled_time'] = f"{d['scheduled_time']}Z"
+        
+        results.append(d)
+        
+    return results
 
 @app.get("/api/campaigns/{campaign_id}")
 async def get_campaign(campaign_id: int):
@@ -519,7 +550,19 @@ async def get_campaign(campaign_id: int):
     leads = cursor.fetchall()
     conn.close()
     
-    return {"campaign": dict(campaign), "leads": [dict(l) for l in leads]}
+    camp_dict = dict(campaign)
+    
+    # Logic STATUS corregida
+    if camp_dict['pending_leads'] == 0 and camp_dict['failed_leads'] > 0:
+        camp_dict['status'] = 'paused' # Marca visual "Amarillo/Gris" en vez de Verde
+    elif camp_dict['pending_leads'] == 0:
+        camp_dict['status'] = 'completed'
+
+    # Logic HORA corregida
+    if camp_dict['created_at']: camp_dict['created_at'] = f"{camp_dict['created_at']}Z"
+    if camp_dict['scheduled_time']: camp_dict['scheduled_time'] = f"{camp_dict['scheduled_time']}Z"
+
+    return {"campaign": camp_dict, "leads": [dict(l) for l in leads]}
 
 @app.delete("/api/campaigns/{campaign_id}")
 async def delete_campaign(campaign_id: int):
@@ -545,7 +588,7 @@ async def retry_campaign_failed(campaign_id: int):
     
     count = cursor.rowcount
     
-    # 2. Reactivar campaña si estaba completada
+    # 2. Reactivar selección
     if count > 0:
         cursor.execute("UPDATE campaigns SET status = 'pending' WHERE id = ?", (campaign_id,))
     
@@ -560,7 +603,12 @@ async def get_results():
     cursor.execute("SELECT * FROM encuestas ORDER BY fecha DESC")
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    results = []
+    for row in rows:
+        d = dict(row)
+        if d['fecha']: d['fecha'] = f"{d['fecha']}Z"
+        results.append(d)
+    return results
 
 @app.post("/api/calls/outbound")
 async def make_outbound_call(call_request: OutboundCallRequest):
