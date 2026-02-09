@@ -265,6 +265,51 @@ export function CampaignsView() {
 
   // --- UI Components ---
 
+  const renderEditModal = () => {
+    if (!editingCampaign) return null;
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+            <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <Edit2 className="w-5 h-5 text-blue-600" /> Edit Campaign
+            </h3>
+            <button
+              onClick={() => setEditingCampaign(null)}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Campaign Name</label>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Scheduled Time</label>
+              <input
+                type="datetime-local"
+                value={editTime}
+                onChange={(e) => setEditTime(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+          </div>
+          <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+            <button onClick={() => setEditingCampaign(null)} className="px-4 py-2 text-gray-700">Cancel</button>
+            <button onClick={handleUpdateCampaign} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Save Changes</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const StatusBadge = ({ status }: { status: string }) => {
     const colors: Record<string, string> = {
       pending: 'bg-yellow-100 text-yellow-800',
@@ -320,44 +365,42 @@ export function CampaignsView() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-2xl font-bold mb-2">{selectedCampaign.name}</h2>
-          <div className="grid grid-cols-4 gap-4 mt-4">
-            <div className="p-4 bg-blue-50 rounded-lg">
-              <div className="text-xs text-blue-600 uppercase mb-1">Total Leads</div>
-              <div className="text-2xl font-bold text-blue-900">{selectedCampaign.total_leads || 0}</div>
-            </div>
-            <div className="p-4 bg-green-50 rounded-lg">
-              <div className="text-xs text-green-600 uppercase mb-1">Called</div>
-              <div className="text-2xl font-bold text-green-900">{selectedCampaign.called_leads || 0}</div>
-            </div>
-            <div className="p-4 bg-yellow-50 rounded-lg">
-              <div className="text-xs text-yellow-600 uppercase mb-1">Pending</div>
-              <div className="text-2xl font-bold text-yellow-900">{selectedCampaign.pending_leads || 0}</div>
-            </div>
-            <div className="p-4 bg-red-50 rounded-lg">
-              <div className="text-xs text-red-600 uppercase mb-1">Failed</div>
-              <div className="text-2xl font-bold text-red-900">{selectedCampaign.failed_leads || 0}</div>
-            </div>
+        {/* Info Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+            <p className="text-blue-600 text-xs font-semibold uppercase">Total Leads</p>
+            <p className="text-2xl font-bold text-blue-900">{selectedCampaign.total_leads || 0}</p>
+          </div>
+          <div className="bg-green-50 p-4 rounded-xl border border-green-100">
+            <p className="text-green-600 text-xs font-semibold uppercase">Called</p>
+            <p className="text-2xl font-bold text-green-900">{selectedCampaign.called_leads || 0}</p>
+          </div>
+          <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
+            <p className="text-yellow-600 text-xs font-semibold uppercase">Pending</p>
+            <p className="text-2xl font-bold text-yellow-900">{selectedCampaign.pending_leads || 0}</p>
+          </div>
+          <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+            <p className="text-red-600 text-xs font-semibold uppercase">Failed</p>
+            <p className="text-2xl font-bold text-red-900">{selectedCampaign.failed_leads || 0}</p>
           </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800">
-            Call Log
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h3 className="font-semibold text-gray-900">Call Log</h3>
           </div>
           <table className="w-full">
-            <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
+            <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th className="px-6 py-3 text-left">Phone Number</th>
-                <th className="px-6 py-3 text-left">Status</th>
-                <th className="px-6 py-3 text-left">Last Update</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Phone Number</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Last Update</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {campaignLeads.map((lead) => (
-                <tr key={lead.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 font-mono text-sm">{lead.phone_number}</td>
+                <tr key={lead.id}>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{lead.phone_number}</td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 rounded text-xs font-medium capitalize 
                                     ${lead.status === 'called' ? 'bg-green-100 text-green-800' :
@@ -376,69 +419,7 @@ export function CampaignsView() {
             </tbody>
           </table>
         </div>
-
-        {/* EDIT CAMPAIGN MODAL */}
-        {editingCampaign && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                  <Edit2 className="w-5 h-5 text-blue-600" /> Edit Campaign
-                </h3>
-                <button
-                  onClick={() => setEditingCampaign(null)}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                  title="Cancel"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Campaign Name</label>
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                    placeholder="E.g. Customer Survey Q1"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Scheduled Time (Optional)</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                    <input
-                      type="datetime-local"
-                      value={editTime}
-                      onChange={(e) => setEditTime(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                    />
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500">Leave empty to keep as is.</p>
-                </div>
-              </div>
-
-              <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
-                <button
-                  onClick={() => setEditingCampaign(null)}
-                  className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdateCampaign}
-                  disabled={!editName}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-md transition-all flex items-center gap-2"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {renderEditModal()}
       </div>
     );
   }
@@ -674,6 +655,7 @@ export function CampaignsView() {
           </tbody>
         </table>
       </div>
+      {renderEditModal()}
     </div>
   );
 }

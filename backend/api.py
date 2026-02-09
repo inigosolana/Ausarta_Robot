@@ -349,7 +349,7 @@ async def get_recent_calls():
         results.append({
             "id": row['id'],
             "phone": row['telefono'],
-            "date": row['fecha'],
+            "date": f"{row['fecha']}Z",
             "status": "completed" if row['completada'] else "pending",
             "scores": {
                 "comercial": row['puntuacion_comercial'],
