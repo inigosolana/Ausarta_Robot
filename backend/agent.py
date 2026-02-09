@@ -164,7 +164,7 @@ server = AgentServer(setup_fnc=prewarm)
 async def entrypoint(ctx: JobContext):
     ai_config, agent_config = get_config()
     
-    # Defaults ultra-estables (Hardcoded para evitar fallos de BD)
+    # Defaults ultra-estables (Versiones base para evitar problemas de cuotas)
     llm_model = ai_config.get('llm_model') or 'llama-3.3-70b-versatile'
     tts_model = ai_config.get('tts_model') or 'sonic-multilingual'
     tts_voice = ai_config.get('tts_voice') or '6511153f-72f9-4314-a204-8d8d8afd646a'
