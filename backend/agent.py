@@ -74,8 +74,14 @@ class DefaultAgent(Agent):
         self.server_url = os.getenv("BRIDGE_SERVER_URL", "http://127.0.0.1:8001")
         self.greeting = greeting
         
-        super().__init__(
-            instructions=instructions,
+        super().__init__(instructions=instructions)
+
+    async def on_enter(self, session: AgentSession) -> None:
+        # Saludo oficial obligatorio
+        print(f"👋 [Agent] Entrando en sesión. Saludando con: {self.greeting}")
+        await session.generate_reply(
+            instructions=f"Saluda ahora mismo con: {self.greeting}. No uses herramientas todavía.",
+            allow_interruptions=False
         )
     @function_tool(name="guardar_encuesta")
     async def _http_tool_guardar_encuesta(
@@ -188,12 +194,14 @@ async def entrypoint(ctx: JobContext):
         greeting = f"Hola {customer_name}, le llamo de Ausarta. ¿Tiene un minuto para una encuesta rápida?"
 
     try:
+        # Cargar VAD aquí mismo para evitar fallos de cache
+        vad = silero.VAD.load()
+        
         session = AgentSession(
             stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
             llm=openai.LLM(model=llm_model, base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY")),
             tts=inference.TTS(model=f"cartesia/{tts_model}", voice=tts_voice, language="es"),
-            vad=ctx.proc.userdata["vad"],
-            preemptive_generation=True,
+            vad=vad,
         )
 
         agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)
@@ -211,21 +219,14 @@ async def entrypoint(ctx: JobContext):
                 agent_instance.full_transcript += msg
                 print(f"📝 {msg.strip()}")
 
-        print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
+        print(f"🚀 [Agent] Iniciando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
         
-        # Saludo inicial explícito
-        await session.generate_reply(
-            instructions=f"Eres Dakota. Acabas de entrar en la llamada y DEBES saludar exactamente así: '{greeting}'. No uses herramientas todavía.",
-            allow_interruptions=True
-        )
-
         # Al terminar la sesión (porque cuelguen), intentar guardar la transcripción final
         async def cleanup():
             if survey_id:
                 # Si el cliente nunca dijo nada, marcamos como fallida (IVR, buzón, colgó rápido)
                 final_status = 'completed' if agent_instance.interaction_count > 0 else 'failed'
-                print(f"💾 Guardando final - ID {survey_id} | Status: {final_status}")
                 
                 url = f"http://127.0.0.1:8001/guardar-encuesta"
                 payload = {
@@ -236,8 +237,7 @@ async def entrypoint(ctx: JobContext):
                 try:
                     async with aiohttp.ClientSession() as s:
                         await s.post(url, json=payload, timeout=5)
-                except Exception as e:
-                    print(f"⚠️ Error cleanup save: {e}")
+                except: pass
 
         ctx.add_shutdown_callback(cleanup)
 
@@ -249,7 +249,7 @@ async def entrypoint(ctx: JobContext):
         print("✅ [Agent] Sesión iniciada y saludo enviado.")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error crítico: {e}")
 
 if __name__ == "__main__":
     cli.run_app(server)
