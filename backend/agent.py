@@ -76,13 +76,6 @@ class DefaultAgent(Agent):
             instructions=instructions,
         )
 
-    async def on_enter(self, session: AgentSession):
-        print(f"👋 [Agent] Entrando en sesión. Saludando con: {self.greeting}")
-        # Forzamos al agente a saludar primero sin usar herramientas
-        await session.generate_reply(
-            instructions=f"{self.greeting} No uses herramientas todavía.",
-            allow_interruptions=False
-        )
 
     @function_tool(name="guardar_encuesta")
     async def _http_tool_guardar_encuesta(
@@ -221,6 +214,13 @@ async def entrypoint(ctx: JobContext):
         print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
         
+        # FORZAR SALUDO INICIAL AQUÍ (Muestras de alta fiabilidad)
+        print(f"👋 [Agent] Forzando saludo inicial: {greeting}")
+        await session.generate_reply(
+            instructions=f"Eres Dakota. Acabas de entrar en la llamada y DEBES saludar exactamente así: '{greeting}'. No uses herramientas todavía.",
+            allow_interruptions=True
+        )
+
         # Al terminar la sesión (porque cuelguen), intentar guardar la transcripción final
         async def cleanup():
             if survey_id:
@@ -247,7 +247,7 @@ async def entrypoint(ctx: JobContext):
             ambient_sound=AudioConfig(BuiltinAudioClip.OFFICE_AMBIENCE, volume=0.05),
         )
         await background_audio.start(room=ctx.room, agent_session=session)
-        print("✅ [Agent] Sesión iniciada y hablando.")
+        print("✅ [Agent] Sesión iniciada y saludo enviado.")
         
     except Exception as e:
         print(f"❌ Error: {e}")
