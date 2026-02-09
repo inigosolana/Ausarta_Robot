@@ -60,7 +60,7 @@ const App: React.FC = () => {
             <img src="/ausarta.png" alt="Ausarta Logo" className="h-8 w-auto object-contain" />
             <div className="flex flex-col">
               <span className="text-lg leading-none tracking-tight">Ausarta</span>
-              <span className="text-[10px] text-gray-400 font-normal">Voice AI v1.13 Stable</span>
+              <span className="text-[10px] text-gray-400 font-normal">Voice AI v1.14</span>
             </div>
           </div>
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1 hover:bg-gray-50 rounded text-gray-400">
