@@ -8,22 +8,18 @@ import {
   Cpu,
   PhoneCall,
   Wrench,
-  FileText,
-  Code2,
+  MessageSquare,
   BarChart3,
   ClipboardList,
-  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  Github,
-  ChevronRight,
-  Plus
+  Github
 } from 'lucide-react';
 import { ViewState } from './types';
 import SidebarItem from './components/SidebarItem';
 import TelephonyView from './views/TelephonyView';
 import ModelsView from './views/ModelsView';
-import CampaignsView from './views/CampaignsView';
+import { CampaignsView } from './views/CampaignsView';
 import VoiceAgentsView from './views/VoiceAgentsView';
 import LiveCallView from './views/LiveCallView';
 import DashboardView from './views/DashboardView';
