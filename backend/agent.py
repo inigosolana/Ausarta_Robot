@@ -165,8 +165,8 @@ async def entrypoint(ctx: JobContext):
     print(f"🔍 [DEBUG] Entrypoint llamado para sala: {ctx.room.name}")
     ai_config, agent_config = get_config()
     
-    # Defaults ultra-estables (Versiones base para evitar problemas de cuotas)
-    llm_model = ai_config.get('llm_model') or 'llama-3.3-70b-versatile'
+    # Usamos llama-3.1-8b-instant para evitar el Rate Limit de Groq (es muy rápido y tiene más cupo)
+    llm_model = ai_config.get('llm_model') or 'llama-3.1-8b-instant'
     tts_model = ai_config.get('tts_model') or 'sonic-multilingual'
     tts_voice = ai_config.get('tts_voice') or '6511153f-72f9-4314-a204-8d8d8afd646a'
     stt_model = ai_config.get('stt_model') or 'nova-2'
