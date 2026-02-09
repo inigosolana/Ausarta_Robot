@@ -77,12 +77,6 @@ class DefaultAgent(Agent):
         super().__init__(
             instructions=instructions,
         )
-    async def on_enter(self, session: AgentSession):
-        print(f"👋 [Agent] Entrando en sesión. Saludando con: {self.greeting}")
-        await session.generate_reply(
-            instructions=f"Eres Dakota. Acabas de entrar en la llamada y DEBES saludar exactamente así: '{self.greeting}'. No uses herramientas todavía.",
-            allow_interruptions=True
-        )
     @function_tool(name="guardar_encuesta")
     async def _http_tool_guardar_encuesta(
         self, 
@@ -195,10 +189,11 @@ async def entrypoint(ctx: JobContext):
 
     try:
         session = AgentSession(
-            stt=deepgram.STT(model=stt_model, language="es"),
+            stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
             llm=openai.LLM(model=llm_model, base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY")),
-            tts=cartesia.TTS(model=tts_model, voice=tts_voice, language="es"),
+            tts=inference.TTS(model=f"cartesia/{tts_model}", voice=tts_voice, language="es"),
             vad=ctx.proc.userdata["vad"],
+            preemptive_generation=True,
         )
 
         agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)
@@ -219,10 +214,9 @@ async def entrypoint(ctx: JobContext):
         print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
         
-        # FORZAR SALUDO (Método manual directo)
-        await asyncio.sleep(0.5) # Pequeña pausa para asegurar conexión de audio
+        # Saludo inicial explícito
         await session.generate_reply(
-            instructions=f"Saluda ahora mismo diciendo exactamente: {greeting}",
+            instructions=f"Eres Dakota. Acabas de entrar en la llamada y DEBES saludar exactamente así: '{greeting}'. No uses herramientas todavía.",
             allow_interruptions=True
         )
 
