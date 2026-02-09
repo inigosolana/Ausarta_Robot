@@ -162,6 +162,7 @@ server = AgentServer(setup_fnc=prewarm)
 
 @server.rtc_session(agent_name="Dakota-1ef9")
 async def entrypoint(ctx: JobContext):
+    print(f"🔍 [DEBUG] Entrypoint llamado para sala: {ctx.room.name}")
     ai_config, agent_config = get_config()
     
     # Defaults ultra-estables (Versiones base para evitar problemas de cuotas)
@@ -210,9 +211,9 @@ async def entrypoint(ctx: JobContext):
         # VAD estándar
         vad = silero.VAD.load()
         
-        # STT con Idioma forzado para que entienda el español
-        stt = deepgram.STT(model=stt_model, language="es")
-        tts = cartesia.TTS(model=tts_model, voice=tts_voice)
+        # Restaurar wrappers de inference con prefijos correctos
+        stt = inference.STT(model=f"deepgram/{stt_model}", language="es")
+        tts = inference.TTS(model=f"cartesia/{tts_model}", voice=tts_voice)
         
         session = AgentSession(
             stt=stt,
@@ -237,21 +238,13 @@ async def entrypoint(ctx: JobContext):
                 agent_instance.full_transcript += f"{msg}\n"
 
         print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
-        
-        # Iniciar sesión y esperar a que esté listo
         await session.start(agent=agent_instance, room=ctx.room)
-        print("✅ [Agent] Sesión de LiveKit conectada.")
-
-        # SALUDO FORZADO (Entrypoint) - Es el más fiable para SIP
-        print(f"👋 [Agent] Enviando saludo: {greeting}")
-        try:
-            await session.generate_reply(
-                instructions=f"Saluda ahora mismo diciendo exactamente: '{greeting}'. No uses herramientas.",
-                allow_interruptions=True
-            )
-            print("✅ [Agent] Saludo enviado correctamente.")
-        except Exception as e:
-            print(f"⚠️ [Agent] Error enviando saludo (posible falta de créditos/API): {e}")
+        
+        # Saludo forzado inicial
+        await session.generate_reply(
+            instructions=f"Saluda ahora mismo diciendo exactamente: '{greeting}'. No uses herramientas.",
+            allow_interruptions=True
+        )
 
         async def cleanup():
             if survey_id:
@@ -276,7 +269,7 @@ async def entrypoint(ctx: JobContext):
         await background_audio.start(room=ctx.room, agent_session=session)
         
     except Exception as e:
-        print(f"❌ Error crítico en Dakota: {e}")
+        print(f"❌ [Error Crítico] Dakota: {e}")
 
 if __name__ == "__main__":
     cli.run_app(server)
