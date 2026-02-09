@@ -207,13 +207,17 @@ async def entrypoint(ctx: JobContext):
         greeting = f"Hola {customer_name}, le llamo de Ausarta. ¿Tiene un minuto para una encuesta rápida?"
 
     try:
-        # VAD estándar para evitar fallos de detección
+        # VAD estándar
         vad = silero.VAD.load()
         
+        # STT con Idioma forzado para que entienda el español
+        stt = deepgram.STT(model=stt_model, language="es")
+        tts = cartesia.TTS(model=tts_model, voice=tts_voice)
+        
         session = AgentSession(
-            stt=deepgram.STT(model=stt_model),
+            stt=stt,
             llm=openai.LLM(model=llm_model, base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY")),
-            tts=cartesia.TTS(model=tts_model, voice=tts_voice),
+            tts=tts,
             vad=vad,
             preemptive_generation=True,
         )
@@ -232,27 +236,9 @@ async def entrypoint(ctx: JobContext):
                     agent_instance.interaction_count += 1
                 agent_instance.full_transcript += f"{msg}\n"
 
-        print(f"🚀 [Agent] Iniciando sala {ctx.room.name}...")
-        try:
-            await session.start(agent=agent_instance, room=ctx.room)
-            print("✅ [Agent] session.start exitoso")
-        except Exception as start_err:
-            print(f"❌ [Agent] Error en session.start: {start_err}")
-            raise start_err
-        
-        # Saludo forzado para asegurar que arranca el STT
-        print(f"👋 [Agent] Intentando saludo inicial: {greeting}")
-        try:
-            await session.generate_reply(
-                instructions=f"Saluda ahora mismo con: {greeting}",
-                allow_interruptions=True
-            )
-            print("✅ [Agent] generate_reply (saludo) enviado")
-        except Exception as reply_err:
-            print(f"❌ [Agent] Error en generate_reply (POSIBLE FALTA DE CRÉDITOS): {reply_err}")
-            # Si falla Cartesia, intentamos informar por consola
-            if "cartesia" in str(reply_err).lower():
-                print("⚠️ [Agent] Cartesia parece estar fallando. Revisa tus créditos en cartesia.ai")
+        print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
+        await session.start(agent=agent_instance, room=ctx.room)
+        print("✅ [Agent] Sesión de LiveKit iniciada y agente escuchando.")
 
         async def cleanup():
             if survey_id:
@@ -262,7 +248,7 @@ async def entrypoint(ctx: JobContext):
                     "id_encuesta": survey_id, 
                     "transcription": agent_instance.full_transcript,
                     "status": final_status,
-                    **agent_instance.current_scores # Mandamos todo lo que tengamos acumulado
+                    **agent_instance.current_scores
                 }
                 try:
                     async with aiohttp.ClientSession() as s:
@@ -277,7 +263,7 @@ async def entrypoint(ctx: JobContext):
         await background_audio.start(room=ctx.room, agent_session=session)
         
     except Exception as e:
-        print(f"❌ Error crítico: {e}")
+        print(f"❌ Error crítico en Dakota: {e}")
 
 if __name__ == "__main__":
     cli.run_app(server)

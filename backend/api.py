@@ -85,10 +85,10 @@ def init_database():
             llm_provider VARCHAR(50) DEFAULT 'groq',
             llm_model VARCHAR(100) DEFAULT 'llama-3.3-70b-versatile',
             tts_provider VARCHAR(50) DEFAULT 'cartesia',
-            tts_model VARCHAR(100) DEFAULT 'sonic-3',
+            tts_model VARCHAR(100) DEFAULT 'sonic-multilingual',
             tts_voice VARCHAR(200) DEFAULT '6511153f-72f9-4314-a204-8d8d8afd646a',
             stt_provider VARCHAR(50) DEFAULT 'deepgram',
-            stt_model VARCHAR(100) DEFAULT 'nova-3',
+            stt_model VARCHAR(100) DEFAULT 'nova-2',
             language VARCHAR(10) DEFAULT 'es',
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -99,7 +99,7 @@ def init_database():
     if cursor.fetchone()[0] == 0:
         cursor.execute('''
             INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language)
-            VALUES ('groq', 'llama-3.3-70b-versatile', 'cartesia', 'sonic-3', '6511153f-72f9-4314-a204-8d8d8afd646a', 'deepgram', 'nova-3', 'es')
+            VALUES ('groq', 'llama-3.3-70b-versatile', 'cartesia', 'sonic-multilingual', '6511153f-72f9-4314-a204-8d8d8afd646a', 'deepgram', 'nova-2', 'es')
         ''')
     
     # Tabla de configuración del agente
@@ -200,6 +200,10 @@ REGLAS CRÍTICAS:
     try:
         cursor.execute("ALTER TABLE encuestas ADD COLUMN transcription TEXT")
     except: pass
+    
+    # ARREGLAR MODELOS SI ESTÁN MAL (MIGRACIÓN MANUAL)
+    cursor.execute("UPDATE ai_config SET tts_model = 'sonic-multilingual' WHERE tts_model = 'sonic-3'")
+    cursor.execute("UPDATE ai_config SET stt_model = 'nova-2' WHERE stt_model = 'nova-3'")
     
     conn.commit()
     conn.close()
