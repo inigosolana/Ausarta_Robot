@@ -497,7 +497,7 @@ export function CampaignsView() {
                   {campaign.scheduled_time ? new Date(campaign.scheduled_time).toLocaleString() : '-'}
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-500">
-                  {new Date(campaign.created_at).toLocaleDateString()}
+                  {campaign.created_at ? new Date(campaign.created_at).toLocaleDateString() : '-'}
                 </td>
                 <td className="px-6 py-4 text-right text-sm font-medium">
                   {/* Action buttons (Delete handled via Details but shortcut could be here) */}
