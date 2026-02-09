@@ -215,7 +215,7 @@ async def entrypoint(ctx: JobContext):
         agent_instance.interaction_count = 0
 
         @session.on("transcription_received")
-        def on_transcription(transcript: inference.Transcription):
+        def on_transcription(transcript):
             if transcript.is_final:
                 role = "Agente" if transcript.participant == ctx.room.local_participant else "Cliente"
                 msg = f"{role}: {transcript.text}"
