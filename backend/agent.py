@@ -172,6 +172,21 @@ async def entrypoint(ctx: JobContext):
     except Exception as e:
         print(f"⚠️ Error extracting survey ID: {e}")
 
+    # --- CRITICAL INSTRUCTION PATCHES ---
+    # Parche para asegurar comportamiento correcto aunque la DB tenga instrucciones viejas
+    instructions += """
+    
+    REGLAS CRÍTICAS DE COMPORTAMIENTO:
+    1. PRONUNCIACIÓN: Cuando digas el número 1, di SIEMPRE "uno". Nunca digas "un". Ejemplo incorrecto: "Tienes un 1". Ejemplo correcto: "Tienes un UNO".
+    
+    2. CIERRE RÁPIDO: En la fase de comentarios, si el usuario dice "no", "nada", "ninguno" o "no tengo", TU REACCIÓN DEBE SER INMEDIATA:
+       - Guarda el comentario como "Sin comentarios".
+       - Di: "Perfecto, muchas gracias. Adiós."
+       - Y EJECUTA LA HERRAMIENTA 'finalizar_llamada' AL INSTANTE.
+       - NO digas "Que tenga un buen día" esperando respuesta. CORTA YA.
+    """
+    # -------------------------------------
+
     try:
         session = AgentSession(
             stt=inference.STT(model=f"deepgram/{stt_model}", language="es"),
