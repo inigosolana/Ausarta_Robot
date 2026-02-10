@@ -157,7 +157,8 @@ class DefaultAgent(Agent):
             return "error"
 
 def prewarm(proc: JobProcess):
-    proc.userdata["vad"] = silero.VAD.load(min_speech_duration=0.2, min_silence_duration=0.5)
+    # Ajustamos VAD para que sea menos sensible al ruido de fondo (más robusto)
+    proc.userdata["vad"] = silero.VAD.load(min_speech_duration=0.35, min_silence_duration=0.8)
 
 server = AgentServer(setup_fnc=prewarm)
 
@@ -219,8 +220,8 @@ async def entrypoint(ctx: JobContext):
         greeting = f"Hola {customer_name}, le llamo de Ausarta. ¿Tiene un minuto para una encuesta rápida?"
 
     try:
-        # VAD estándar
-        vad = silero.VAD.load()
+        # VAD ajustado para ignorar ruidos cortos y no interrumpir por ruidos de fondo
+        vad = silero.VAD.load(min_speech_duration=0.35, min_silence_duration=0.8)
         
         # Usar los plugins directamente (inference.STT/TTS
         stt = deepgram.STT(model=stt_model, language="es")
@@ -245,13 +246,13 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             print(f"❌ [Error Init] Falló al crear instancia LLM: {e}")
             raise e
-
         session = AgentSession(
             stt=stt,
             llm=llm_plugin,
             tts=tts,
             vad=vad,
             preemptive_generation=True,
+            plot_predictions=False
         )
 
         agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)
@@ -324,10 +325,8 @@ async def entrypoint(ctx: JobContext):
 
         ctx.add_shutdown_callback(cleanup)
 
-        background_audio = BackgroundAudioPlayer(
-            ambient_sound=AudioConfig(BuiltinAudioClip.OFFICE_AMBIENCE, volume=0.05),
-        )
-        await background_audio.start(room=ctx.room, agent_session=session)
+        # Eliminamos ruido de fondo para una voz más limpia
+        pass
         
     except Exception as e:
         import traceback
