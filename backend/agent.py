@@ -318,7 +318,7 @@ async def entrypoint(ctx: JobContext):
                 if role == "Cliente":
                     agent_instance.interaction_count += 1
                 agent_instance.full_transcript += f"{msg}\n"
-                # Sincronizar en tiempo real al detectar habla del cliente
+                
                 if role == "Cliente":
                     asyncio.create_task(sync_data())
 
