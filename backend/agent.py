@@ -28,60 +28,66 @@ from livekit.agents import (
 )
 
 class RedundantLLMStream(llm.LLMStream):
-    def __init__(self, main_stream_fn, backup_stream_fn, name: str):
-        super().__init__(None, None) # Params not strictly used by our wrapper
-        self._main_stream_fn = main_stream_fn
-        self._backup_stream_fn = backup_stream_fn
-        self._name = name
+    def __init__(self, candidates: list):
+        super().__init__(None, None)
+        self._candidates = candidates # Lista de (nombre, factory_fn)
+        self._current_idx = 0
         self._current_stream = None
-        self._using_backup = False
+
+    async def _handle_fallback(self):
+        """Intenta saltar al siguiente candidato disponible"""
+        self._current_idx += 1
+        if self._current_idx < len(self._candidates):
+            name, fn = self._candidates[self._current_idx]
+            print(f"� [Redundancy] Reintentando con candidato #{self._current_idx + 1}: {name}...")
+            try:
+                self._current_stream = fn()
+                return True
+            except Exception as e:
+                print(f"⚠️ [Redundancy] {name} también falló de inicio: {e}")
+                return await self._handle_fallback()
+        return False
 
     async def __anext__(self):
         if self._current_stream is None:
-            try:
-                # Intento inicial ultrarrápido
-                self._current_stream = self._main_stream_fn()
-            except Exception as e:
-                if self._backup_stream_fn:
-                    print(f"🚨 [Redundancy] Fallo crítico al iniciar: {e}. Rescatando con Backup...")
-                    self._current_stream = self._backup_stream_fn()
-                    self._using_backup = True
-                else:
+            if self._current_idx < len(self._candidates):
+                name, fn = self._candidates[self._current_idx]
+                try:
+                    self._current_stream = fn()
+                except Exception as e:
+                    print(f"⚠️ [Redundancy] Fallo inicial en {name}: {e}")
+                    if await self._handle_fallback():
+                        return await self.__anext__()
                     raise e
+            else:
+                raise StopAsyncIteration
 
         try:
             return await self._current_stream.__anext__()
         except StopAsyncIteration:
             raise StopAsyncIteration
         except Exception as e:
-            # Capturamos el error 429 (Quota) o 404 que ocurre DURANTE el stream
-            if not self._using_backup and self._backup_stream_fn:
-                print(f"🚨 [Redundancy] Error de cuota/conexión detectado: {e}")
-                print(f"🔄 [Redundancy] Saltando al motor de respaldo en caliente...")
-                try:
-                    self._current_stream = self._backup_stream_fn()
-                    self._using_backup = True
-                    return await self._current_stream.__anext__()
-                except Exception as e_backup:
-                    print(f"❌ [Redundancy] El motor de respaldo también falló: {e_backup}")
-                    raise e_backup
+            print(f"🚨 [Redundancy] Error durante el stream: {e}")
+            if await self._handle_fallback():
+                return await self.__anext__()
             raise e
 
     def __aiter__(self):
         return self
 
 class RedundantLLM(llm.LLM):
-    """Capa de redundancia: si el principal falla, usa el backup automáticamente"""
-    def __init__(self, main: llm.LLM, backup: Optional[llm.LLM], name: str):
+    """Encadena múltiples candidatos (Google 2.0 -> Google 1.5 -> Groq Llama -> Groq Mixtral)"""
+    def __init__(self, candidates: list):
         super().__init__()
-        self._main = main
-        self._backup = backup
-        self._name = name
+        self._candidates = candidates
 
     def chat(self, **kwargs):
-        main_fn = lambda: self._main.chat(**kwargs)
-        backup_fn = (lambda: self._backup.chat(**kwargs)) if self._backup else None
-        return RedundantLLMStream(main_fn, backup_fn, self._name)
+        # Creamos factories para que cada reintento sea una petición fresca
+        factories = []
+        for name, plugin in self._candidates:
+            if plugin:
+                factories.append((name, lambda p=plugin: p.chat(**kwargs)))
+        return RedundantLLMStream(factories)
 
 from livekit.plugins import (
     silero,
@@ -412,34 +418,48 @@ async def entrypoint(ctx: JobContext):
 
         print(f"⚙️ [LLM Config] Final -> Provider: {provider} | Model: {model_name}")
 
-        # 2. Inicialización de Redundancia Dual (Alta Disponibilidad)
-        groq_plugin = None
+        # 2. Inicialización de CANDIDATOS (Multi-Modelo HA)
+        candidates = []
+        
+        # Primero Google si está disponible (con dos modelos)
+        if google_key:
+            try:
+                candidates.append(("Google Gemini 2.0 Flash", google.LLM(model="models/gemini-2.0-flash", api_key=google_key)))
+                candidates.append(("Google Gemini 1.5 Flash", google.LLM(model="models/gemini-1.5-flash", api_key=google_key)))
+            except Exception as e: print(f"⚠️ [Init] Error preparando candidatos Google: {e}")
+
+        # Luego Groq (con dos modelos)
         if groq_key:
             try:
-                groq_plugin = openai.LLM(
+                candidates.append(("Groq Llama 3.3 (70B)", openai.LLM(
                     model="llama-3.3-70b-versatile", 
                     base_url="https://api.groq.com/openai/v1", 
                     api_key=groq_key
-                )
-            except Exception as e: print(f"⚠️ [Init] Groq no disponible: {e}")
+                )))
+                candidates.append(("Groq Mixtral 8x7B", openai.LLM(
+                    model="mixtral-8x7b-32768", 
+                    base_url="https://api.groq.com/openai/v1", 
+                    api_key=groq_key
+                )))
+            except Exception as e: print(f"⚠️ [Init] Error preparando candidatos Groq: {e}")
 
-        google_plugin = None
-        if google_key:
-            try:
-                # Usar el modelo que sabemos que existe por el diagnóstico
-                google_plugin = google.LLM(model="models/gemini-2.0-flash", api_key=google_key)
-            except Exception as e: print(f"⚠️ [Init] Google no disponible: {e}")
-
-        # 3. Empaquetar en el motor redundante
-        if provider == "google" and google_plugin:
-            print(f"⚙️ [Redundancy] Configura: Google (Principal) / Groq (Respaldo)")
-            llm_plugin = RedundantLLM(main=google_plugin, backup=groq_plugin, name="Google Gemini")
-        elif groq_plugin:
-            print(f"⚙️ [Redundancy] Configura: Groq (Principal) / Google (Respaldo)")
-            llm_plugin = RedundantLLM(main=groq_plugin, backup=google_plugin, name="Groq Llama")
+        # Si el usuario eligió un proveedor específico, lo ponemos el primero de la lista
+        if provider == "groq":
+            # Mover los de Groq al principio
+            groq_items = [c for c in candidates if "Groq" in c[0]]
+            other_items = [c for c in candidates if "Groq" not in c[0]]
+            candidates = groq_items + other_items
         else:
+            # Google ya está el primero por defecto arriba
+            pass
+
+        if not candidates:
             print(f"❌ [Error] Ningún motor LLM disponible. El agente fallará.")
             raise ValueError("No LLM keys available")
+
+        print(f"⚙️ [Redundancy] Cadena de HA activada con {len(candidates)} niveles.")
+        llm_plugin = RedundantLLM(candidates=candidates)
+
 
         session = AgentSession(
             stt=stt,
