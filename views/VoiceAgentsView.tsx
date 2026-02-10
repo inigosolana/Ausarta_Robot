@@ -323,7 +323,11 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
               <label className="block text-sm font-medium text-gray-700 mb-1">Proveedor</label>
               <select
                 value={aiConfig.llm_provider}
-                onChange={(e) => setAiConfig({ ...aiConfig, llm_provider: e.target.value })}
+                onChange={(e) => {
+                  const newProvider = e.target.value;
+                  const defaultModel = newProvider === 'google' ? 'gemini-1.5-flash' : 'llama-3.3-70b-versatile';
+                  setAiConfig({ ...aiConfig, llm_provider: newProvider, llm_model: defaultModel });
+                }}
                 className="w-full px-3 py-2 border rounded-lg bg-gray-50"
               >
                 <option value="groq">Groq (Llama 3)</option>
@@ -333,12 +337,26 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Modelo</label>
-              <input
-                type="text"
+              <select
                 value={aiConfig.llm_model}
                 onChange={(e) => setAiConfig({ ...aiConfig, llm_model: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
+                className="w-full px-3 py-2 border rounded-lg bg-white"
+              >
+                {aiConfig.llm_provider === 'google' ? (
+                  <>
+                    <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                    <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                  </>
+                ) : aiConfig.llm_provider === 'groq' ? (
+                  <>
+                    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+                    <option value="llama3-70b-8192">llama3-70b-8192</option>
+                    <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                  </>
+                ) : (
+                  <option value={aiConfig.llm_model}>{aiConfig.llm_model}</option>
+                )}
+              </select>
             </div>
           </section>
 
