@@ -821,16 +821,26 @@ async def iniciar_encuesta(datos: InicioEncuesta):
 async def guardar_encuesta(datos: FinEncuesta):
     print(f"📥 2. Recibiendo datos. La IA dice ID: {datos.id_encuesta}")
     
+    num_map = {
+        "cero": 0, "uno": 1, "un": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+        "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10
+    }
+
     def clean_nota(val):
         if val is None: return None
-        try:
-            # Intentar extraer el primer número que aparezca (por si mandan "8/10" o "un 7")
-            match = re.search(r'\d+', str(val))
-            if match:
-                num = int(match.group())
-                if 1 <= num <= 10: return num
-            return None 
-        except: return None
+        s_val = str(val).lower().strip()
+        
+        # 1. Intentar número directo
+        match = re.search(r'\b(10|[0-9])\b', s_val)
+        if match:
+            num = int(match.group())
+            if 0 <= num <= 10: return num
+            
+        # 2. Intentar palabra escrita
+        for word, num in num_map.items():
+            if f" {word} " in f" {s_val} ":
+                return num
+        return None
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -881,26 +891,22 @@ async def guardar_encuesta(datos: FinEncuesta):
         # RESCATE: Si no vienen notas pero hay transcripción, intentar extraerlas del texto
         if datos.transcription:
             lines = datos.transcription.split('\n')
-            # Mapeo de términos a columnas
             mapping = {
                 "puntuacion_comercial": ["comercial", "atencion", "trato"],
-                "puntuacion_instalador": ["instalador", "tecnico", "tecnico"],
-                "puntuacion_rapidez": ["rapidez", "velocidad", "tiempo"]
+                "puntuacion_instalador": ["instalador", "tecnico", "técnico", "montaje"],
+                "puntuacion_rapidez": ["rapidez", "velocidad", "tiempo", "rápido"]
             }
             
-            # Solo si el campo aún no está en update_fields
             for col, keywords in mapping.items():
                 if not any(col in f for f in update_fields):
-                    # Buscar la respuesta del cliente tras una pregunta del agente que contenga la keyword
+                    # Buscar la respuesta del cliente tras una pregunta que contenga la keyword
                     for i in range(len(lines) - 1):
                         agente_line = lines[i].lower()
                         if "agente:" in agente_line and any(k in agente_line for k in keywords):
                             cliente_line = lines[i+1].lower()
                             if "cliente:" in cliente_line:
-                                # Extraer número de la línea del cliente
-                                match = re.search(r'\b(10|[1-9])\b', cliente_line)
-                                if match:
-                                    val = int(match.group())
+                                val = clean_nota(cliente_line)
+                                if val is not None:
                                     update_fields.append(f"{col} = ?")
                                     params.append(val)
                                     print(f"🕵️ [Rescue] Extraído {col}={val} de la transcripción.")
@@ -923,7 +929,7 @@ async def guardar_encuesta(datos: FinEncuesta):
             params.append(datos.seconds_used)
 
         # Solo actualizamos el estado de 'completada' si se nos indica explícitamente un status
-        # (esto sucede en el cleanup final o cuando el agente decide terminar)
+        # O si hemos rescatado al menos una nota y la transcripción parece cortada
         if datos.status is not None:
             final_complete = 0 if datos.status == 'failed' else 1
             update_fields.append("completada = ?")
@@ -932,6 +938,14 @@ async def guardar_encuesta(datos: FinEncuesta):
             # Solo sincronizamos con campañas al finalizar de verdad
             lead_status = 'called' if final_complete == 1 else 'failed'
             cursor.execute("UPDATE campaign_leads SET status = ? WHERE call_id = ?", (lead_status, id_final))
+        elif len(update_fields) > 1: # Si hemos rescatado algo nuevo
+             # Si tenemos al menos 2 notas o comentarios, marcamos como completada
+             # para que no aparezca como eterna 'Pendiente' si el usuario colgó al final
+             notas_rescatadas = [f for f in update_fields if 'puntuacion' in f]
+             if len(notas_rescatadas) >= 2 or "comentarios" in str(update_fields):
+                 print(f"✅ [Auto-Close] Marcando ficha {id_final} como completada por rescate exitoso.")
+                 update_fields.append("completada = 1")
+                 cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE call_id = ?", (id_final,))
             
             # Fallback por teléfono (para asegurar)
             cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))

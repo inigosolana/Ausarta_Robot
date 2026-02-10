@@ -213,6 +213,30 @@ async def entrypoint(ctx: JobContext):
     if customer_name:
         greeting = f"Hola {customer_name}, le llamo de Ausarta. ¿Tiene un minuto para una encuesta rápida?"
 
+    # Inicialización temprana para seguridad del closure
+    agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)
+    agent_instance.full_transcript = ""
+    agent_instance.interaction_count = 0
+    agent_instance.total_tokens = 0
+    agent_instance.total_seconds = 0
+    agent_instance.last_client_text = ""
+
+    # Sincronización en tiempo real (evita perder datos si cuelgan de golpe)
+    async def sync_data():
+        if not survey_id: return
+        url = f"http://127.0.0.1:8001/guardar-encuesta"
+        payload = {
+            "id_encuesta": survey_id,
+            "transcription": agent_instance.full_transcript,
+            "tokens_used": agent_instance.total_tokens,
+            **agent_instance.current_scores
+        }
+        try:
+            session_http = utils.http_context.http_session()
+            async with session_http.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=2)) as r:
+                pass
+        except: pass
+
     async def cleanup():
         print(f"🛑 [Shutdown] Iniciando limpieza para sala: {ctx.room.name}")
         # Calcular duración aproximada si hubo intercambio
@@ -285,13 +309,6 @@ async def entrypoint(ctx: JobContext):
             vad=vad
         )
 
-        agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)
-        agent_instance.full_transcript = ""
-        agent_instance.interaction_count = 0
-        agent_instance.total_tokens = 0
-        agent_instance.total_seconds = 0
-        agent_instance.last_client_text = "" # Guardar lo último dicho por el cliente
-
         @session.on("transcription_received")
         def on_transcription(transcript):
             if transcript.is_final:
@@ -300,17 +317,15 @@ async def entrypoint(ctx: JobContext):
                 print(f"🎤 {msg}")
                 if role == "Cliente":
                     agent_instance.interaction_count += 1
-                    agent_instance.last_client_text = transcript.text
                 agent_instance.full_transcript += f"{msg}\n"
+                # Sincronizar en tiempo real al detectar habla del cliente
+                if role == "Cliente":
+                    asyncio.create_task(sync_data())
 
-        # Capturar uso de tokens de los eventos de la sesión (si el plugin lo soporta)
         @session.on("llm_response_finished")
         def on_llm_done(resp):
-            # Intentar extraer métricas si están disponibles en la respuesta
             if hasattr(resp, 'usage') and resp.usage:
-                tokens = getattr(resp.usage, 'total_tokens', 0)
-                agent_instance.total_tokens += tokens
-                print(f"📊 [Usage] Tokens en esta respuesta: {tokens} (Total: {agent_instance.total_tokens})")
+                agent_instance.total_tokens += getattr(resp.usage, 'total_tokens', 0)
         
         print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
