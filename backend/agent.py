@@ -341,12 +341,14 @@ async def entrypoint(ctx: JobContext):
         # Forzar language='es' para evitar acento "chino/americano" en modelo multilingual
         tts = cartesia.TTS(model=tts_model, voice=tts_voice, language="es")
         
-        # Validar API Key
+        # Validar API Keys
         groq_key = os.getenv("GROQ_API_KEY")
-        if not groq_key:
-             print("❌ [Error FATAL] NO SE ENCONTRÓ GROQ_API_KEY EN VARIABLES DE ENTORNO. El agente fallará.")
-        else:
+        google_key = os.getenv("GOOGLE_API_KEY")
+        
+        if groq_key:
              print(f"🔑 [Security] GROQ_API_KEY encontrada (termina en ...{groq_key[-4:] if len(groq_key)>4 else '****'})")
+        if google_key:
+             print(f"🔑 [Security] GOOGLE_API_KEY encontrada (termina en ...{google_key[-4:] if len(google_key)>4 else '****'})")
 
         print(f"🤖 [Init] Configurando LLM...")
         
@@ -360,8 +362,8 @@ async def entrypoint(ctx: JobContext):
         # Auto-corrección de seguridad para evitar 404s cruzados
         if provider == "google":
             if "gemini" not in model_name.lower():
-                 print(f"⚠️ [Correction] Se pidió Google pero el modelo era '{model_name}'. Forzando 'models/gemini-1.5-flash'.")
-                 model_name = "models/gemini-1.5-flash"
+                 print(f"⚠️ [Correction] Se pidió Google pero el modelo era '{model_name}'. Forzando 'models/gemini-2.0-flash'.")
+                 model_name = "models/gemini-2.0-flash"
             elif not model_name.startswith("models/"):
                  print(f"⚠️ [Correction] Añadiendo prefijo 'models/' a {model_name}")
                  model_name = f"models/{model_name}"
