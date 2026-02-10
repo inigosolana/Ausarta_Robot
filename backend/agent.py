@@ -105,7 +105,45 @@ class DefaultAgent(Agent):
         self.current_scores = {} # Cache de seguridad
         self.is_completed = False # Flag de encuesta terminada
         
+        # Metrics
+        self.total_tokens = 0
+        self.start_time = asyncio.get_event_loop().time()
+        
         super().__init__(instructions=instructions)
+
+    async def helper_save_survey(self, id_encuesta, nota_comercial=None, nota_instalador=None, nota_rapidez=None, comentarios=None, transcript=None, status="pending"):
+        """Helper para guardar encuesta con métricas de uso"""
+        
+        # Actualizar cache local
+        if nota_comercial: self.current_scores["nota_comercial"] = nota_comercial
+        if nota_instalador: self.current_scores["nota_instalador"] = nota_instalador
+        if nota_rapidez: self.current_scores["nota_rapidez"] = nota_rapidez
+        if comentarios: self.current_scores["comentarios"] = comentarios
+        if status == 'completed': self.is_completed = True
+
+        seconds_used = int(asyncio.get_event_loop().time() - self.start_time)
+
+        payload = {
+            "id_encuesta": id_encuesta,
+            "nota_comercial": nota_comercial,
+            "nota_instalador": nota_instalador,
+            "nota_rapidez": nota_rapidez,
+            "comentarios": comentarios,
+            "transcription": transcript,
+            "status": status,
+            "tokens_used": self.total_tokens,
+            "seconds_used": seconds_used
+        }
+        
+        url = f"{self.server_url}/guardar-encuesta"
+        try:
+             # Usar un session efímero o gestionado
+             async with aiohttp.ClientSession() as session:
+                async with session.post(url, timeout=aiohttp.ClientTimeout(total=10), json=payload) as resp:
+                    return await resp.text()
+        except Exception as e:
+            print(f"❌ [Agent] Error guardando encuesta: {e}")
+            return f"error: {e}"
 
     # Eliminado on_enter para evitar saludos duplicados con el entrypoint
 
@@ -136,30 +174,15 @@ class DefaultAgent(Agent):
         if hasattr(self, 'full_transcript'):
             transcript = self.full_transcript
 
-        # Guardar en local para el cleanup
-        if nota_comercial: self.current_scores["nota_comercial"] = nota_comercial
-        if nota_instalador: self.current_scores["nota_instalador"] = nota_instalador
-        if nota_rapidez: self.current_scores["nota_rapidez"] = nota_rapidez
-        if comentarios: self.current_scores["comentarios"] = comentarios
-        if status == 'completed': self.is_completed = True
-
-        payload = {
-            "id_encuesta": id_encuesta,
-            "nota_comercial": nota_comercial,
-            "nota_instalador": nota_instalador,
-            "nota_rapidez": nota_rapidez,
-            "comentarios": comentarios,
-            "transcription": transcript,
-            "status": status
-        }
-        try:
-            session = utils.http_context.http_session()
-            async with session.post(url, timeout=aiohttp.ClientTimeout(total=10), json=payload) as resp:
-                resultado = await resp.text()
-                return resultado
-        except Exception as e:
-            print(f"❌ [Tool] Error en guardar_encuesta: {e}")
-            return f"error: {e}"
+        return await self.helper_save_survey(
+            id_encuesta=id_encuesta,
+            nota_comercial=nota_comercial,
+            nota_instalador=nota_instalador,
+            nota_rapidez=nota_rapidez,
+            comentarios=comentarios,
+            transcript=transcript,
+            status=status
+        )
 
     @function_tool(name="finalizar_llamada")
     async def _http_tool_finalizar_llamada(
@@ -253,23 +276,19 @@ async def entrypoint(ctx: JobContext):
     agent_instance.total_seconds = 0
     agent_instance.last_client_text = ""
     agent_instance.pending_client_text = "" # Buffer para lo último dicho (aunque no sea final)
+    agent_instance.start_time = asyncio.get_event_loop().time() # Track start time
 
 
     # Sincronización en tiempo real (evita perder datos si cuelgan de golpe)
     async def sync_data():
         if not survey_id: return
-        url = f"http://127.0.0.1:8001/guardar-encuesta"
-        payload = {
-            "id_encuesta": survey_id,
-            "transcription": agent_instance.full_transcript,
-            "tokens_used": agent_instance.total_tokens,
+        
+        # Use the helper method for consistency
+        await agent_instance.helper_save_survey(
+            id_encuesta=survey_id,
+            transcript=agent_instance.full_transcript,
             **agent_instance.current_scores
-        }
-        try:
-            session_http = utils.http_context.http_session()
-            async with session_http.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=2)) as r:
-                pass
-        except: pass
+        )
 
     async def cleanup():
         print(f"🛑 [Shutdown] Iniciando limpieza para sala: {ctx.room.name}")
@@ -287,25 +306,13 @@ async def entrypoint(ctx: JobContext):
             
             print(f"🔍 [Cleanup] Preparando guardado. has_data={has_data}, pending={bool(agent_instance.pending_client_text)}, final_status={final_status}")
             
-            # Intentar usar la URL del Bridge detectada o 127.0.0.1
-            url = f"http://127.0.0.1:8001/guardar-encuesta"
-            payload = {
-                "id_encuesta": survey_id, 
-                "transcription": agent_instance.full_transcript,
-                "status": final_status,
-                "tokens_used": agent_instance.total_tokens,
-                "seconds_used": duration,
+            # Use the helper method for consistency
+            await agent_instance.helper_save_survey(
+                id_encuesta=survey_id,
+                transcript=agent_instance.full_transcript,
+                status=final_status,
                 **agent_instance.current_scores
-            }
-            try:
-                # Aumentamos un poco el timeout y usamos aiohttp directamente de forma segura
-                print(f"💾 [Shutdown] Guardando {len(agent_instance.full_transcript)} chars de transcripción y notas: {agent_instance.current_scores}")
-                async with aiohttp.ClientSession() as s:
-                    async with s.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as r:
-                        txt = await r.text()
-                        print(f"✅ [Shutdown] Respuesta DB: {txt}")
-            except Exception as e:
-                print(f"⚠️ [Shutdown] No se pudo guardar survey_id={survey_id}: {e}")
+            )
         
         print(f"👋 [Shutdown] Limpieza completada.")
 
@@ -390,6 +397,11 @@ async def entrypoint(ctx: JobContext):
                 
                 if role == "Cliente":
                     asyncio.create_task(sync_data())
+
+        @session.on("metrics_collected")
+        def on_metrics(metrics):
+             # Hook para capturar métricas si el plugin las emite
+             pass
 
         @session.on("llm_response_finished")
         def on_llm_done(resp):

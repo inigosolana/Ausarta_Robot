@@ -105,6 +105,35 @@ const UsageView: React.FC = () => {
                 </div>
             </div>
 
+            {/* Provider Dashboards Link (For Remaining Quota) */}
+            <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 shadow-sm">
+                <div className="flex items-start gap-4">
+                    <div className="bg-blue-100 p-3 rounded-full text-blue-600">
+                        <Cpu size={24} />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-bold text-gray-900">Check Remaining Quota & Limits</h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                            The metrics above show usage consumed by this agent. To see your exact remaining balance, credits, or rate limits, please visit your provider's dashboard:
+                        </p>
+                        <div className="flex flex-wrap gap-3">
+                            <a href="https://console.groq.com/settings/limits" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors">
+                                <img src="https://groq.com/favicon.ico" className="w-4 h-4 rounded-sm" onError={(e) => e.currentTarget.src = ''} />
+                                Groq Limits
+                            </a>
+                            <a href="https://aistudio.google.com/app/plan_information" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors">
+                                <span className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center text-[8px] text-white font-bold">G</span>
+                                Google AI Quota
+                            </a>
+                            <a href="https://play.cartesia.ai/settings" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors">
+                                <span className="w-4 h-4 bg-purple-500 rounded-full flex items-center justify-center text-[8px] text-white font-bold">C</span>
+                                Cartesia Credits
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {/* System Alerts Log */}
             <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
                 <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
