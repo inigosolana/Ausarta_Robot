@@ -27,6 +27,52 @@ from livekit.agents import (
     llm,
 )
 
+async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
+    """Consulta en vivo qué modelos están disponibles y elige el orden de prioridad"""
+    candidates = []
+    
+    # 1. Consultar Google (si hay clave)
+    if google_key:
+        try:
+            # Intentar listar para ver si hay 429 inmediato
+            async with aiohttp.ClientSession() as session:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models?key={google_key}"
+                async with session.get(url, timeout=3) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for m in data.get('models', []):
+                            name = m.get('name', '')
+                            # Solo modelos gratuitos de flash que sirven para chat
+                            if 'flash' in name.lower() and 'generateContent' in m.get('supportedGenerationMethods', []):
+                                candidates.append((f"Google {name}", google.LLM(model=name, api_key=google_key), 1))
+                    elif resp.status == 429:
+                        print("⚠️ [Discovery] Google está en Rate Limit (429). Prioridad bajada.")
+        except Exception as e:
+            print(f"⚠️ [Discovery] Error consultando Google: {e}")
+
+    # 2. Añadir Groq (si hay clave)
+    if groq_key:
+        # Groq suele ser más estable en latencia pero tiene límites diarios
+        candidates.append(("Groq Llama 3.3", openai.LLM(
+            model="llama-3.3-70b-versatile", 
+            base_url="https://api.groq.com/openai/v1", 
+            api_key=groq_key
+        ), 2))
+        candidates.append(("Groq Mixtral", openai.LLM(
+            model="mixtral-8x7b-32768", 
+            base_url="https://api.groq.com/openai/v1", 
+            api_key=groq_key
+        ), 3))
+
+    # 3. Ordenar: El usuario manda, pero si el preferido falló en el check, el otro sube
+    if preferred_provider == "groq":
+        candidates.sort(key=lambda x: 0 if "Groq" in x[0] else x[2])
+    else:
+        # Si Google dio 429 arriba, candidates ya vendrá filtrado o vacío
+        candidates.sort(key=lambda x: x[2])
+        
+    return [(c[0], c[1]) for c in candidates]
+
 class RedundantLLMStream(llm.LLMStream):
     def __init__(self, candidates: list):
         super().__init__(None, None)
@@ -418,46 +464,21 @@ async def entrypoint(ctx: JobContext):
 
         print(f"⚙️ [LLM Config] Final -> Provider: {provider} | Model: {model_name}")
 
-        # 2. Inicialización de CANDIDATOS (Multi-Modelo HA)
-        candidates = []
+        # 2. DESCUBRIMIENTO DINÁMICO (Consulta ultra-rápida antes de elegir)
+        # Esto evita silencios porque ya sabemos quién está "vivo" antes de empezar
+        print(f"⚙️ [LLM Config] Preferencia -> Provider: {provider} | Model: {model_name}")
+        candidates = await discover_best_llm(google_key, groq_key, preferred_provider=provider)
         
-        # Primero Google si está disponible (con dos modelos)
-        if google_key:
-            try:
-                candidates.append(("Google Gemini 2.0 Flash", google.LLM(model="models/gemini-2.0-flash", api_key=google_key)))
-                candidates.append(("Google Gemini 1.5 Flash", google.LLM(model="models/gemini-1.5-flash", api_key=google_key)))
-            except Exception as e: print(f"⚠️ [Init] Error preparando candidatos Google: {e}")
-
-        # Luego Groq (con dos modelos)
-        if groq_key:
-            try:
-                candidates.append(("Groq Llama 3.3 (70B)", openai.LLM(
-                    model="llama-3.3-70b-versatile", 
-                    base_url="https://api.groq.com/openai/v1", 
-                    api_key=groq_key
-                )))
-                candidates.append(("Groq Mixtral 8x7B", openai.LLM(
-                    model="mixtral-8x7b-32768", 
-                    base_url="https://api.groq.com/openai/v1", 
-                    api_key=groq_key
-                )))
-            except Exception as e: print(f"⚠️ [Init] Error preparando candidatos Groq: {e}")
-
-        # Si el usuario eligió un proveedor específico, lo ponemos el primero de la lista
-        if provider == "groq":
-            # Mover los de Groq al principio
-            groq_items = [c for c in candidates if "Groq" in c[0]]
-            other_items = [c for c in candidates if "Groq" not in c[0]]
-            candidates = groq_items + other_items
-        else:
-            # Google ya está el primero por defecto arriba
-            pass
-
         if not candidates:
-            print(f"❌ [Error] Ningún motor LLM disponible. El agente fallará.")
-            raise ValueError("No LLM keys available")
+            print(f"❌ [Error] Ningún motor LLM respondió al pre-check de salud.")
+            if groq_key:
+                candidates = [("Groq Emergency", openai.LLM(
+                    model="llama-3.3-70b-versatile", base_url="https://api.groq.com/openai/v1", api_key=groq_key
+                ))]
+            else:
+                raise ValueError("No LLM services available after health check")
 
-        print(f"⚙️ [Redundancy] Cadena de HA activada con {len(candidates)} niveles.")
+        print(f"⚙️ [Redundancy] HA Dinámica activada: {[c[0] for c in candidates]}")
         llm_plugin = RedundantLLM(candidates=candidates)
 
 
