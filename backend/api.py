@@ -201,33 +201,24 @@ REGLAS CRÍTICAS:
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_completada ON encuestas(completada)')
     
     # Migración: Añadir campo cliente a tablas existentes si no existe
-    try:
-        cursor.execute("ALTER TABLE campaign_leads ADD COLUMN customer_name VARCHAR(100)")
-    except: pass
+    migraciones = [
+        ("ALTER TABLE campaign_leads ADD COLUMN customer_name VARCHAR(100)", "camp_leads_cust"),
+        ("ALTER TABLE encuestas ADD COLUMN nombre_cliente VARCHAR(100)", "enc_cust"),
+        ("ALTER TABLE campaigns ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "camp_upd"),
+        ("ALTER TABLE campaign_leads ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "lead_upd"),
+        ("ALTER TABLE encuestas ADD COLUMN transcription TEXT", "enc_trans"),
+        ("ALTER TABLE encuestas ADD COLUMN tokens_used INTEGER DEFAULT 0", "enc_tok"),
+        ("ALTER TABLE encuestas ADD COLUMN seconds_used INTEGER DEFAULT 0", "enc_sec")
+    ]
     
-    try:
-        cursor.execute("ALTER TABLE encuestas ADD COLUMN nombre_cliente VARCHAR(100)")
-    except: pass
-    
-    try:
-        cursor.execute("ALTER TABLE campaigns ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-    except: pass
-    
-    try:
-        cursor.execute("ALTER TABLE campaign_leads ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-    except: pass
-    
-    try:
-        cursor.execute("ALTER TABLE encuestas ADD COLUMN transcription TEXT")
-    except: pass
-    
-    try:
-        cursor.execute("ALTER TABLE encuestas ADD COLUMN tokens_used INTEGER DEFAULT 0")
-    except: pass
-    
-    try:
-        cursor.execute("ALTER TABLE encuestas ADD COLUMN seconds_used INTEGER DEFAULT 0")
-    except: pass
+    for sql, name in migraciones:
+        try:
+            cursor.execute(sql)
+            print(f"📦 [DB] Migración aplicada: {name}")
+        except sqlite3.OperationalError:
+            pass # Ya existe
+        except Exception as e:
+            print(f"⚠️ [DB] Error en migración {name}: {e}")
 
     # ARREGLAR MODELOS SI ESTÁN MAL (MIGRACIÓN MANUAL)
     cursor.execute("UPDATE ai_config SET llm_model = 'llama-3.3-70b-versatile' WHERE llm_model = 'llama-3.1-8b-instant'")
@@ -236,7 +227,7 @@ REGLAS CRÍTICAS:
     
     conn.commit()
     conn.close()
-    print("✅ Base de datos SQLite inicializada/actualizada correctamente")
+    print("✅ Base de datos SQLite inicializada correctamente")
 
 # Inicializar BD al arrancar
 init_database()
