@@ -446,11 +446,11 @@ async def get_usage_stats():
 async def get_dashboard_integrations():
     """Retorna el estado de las integraciones externas"""
     return [
-        {"name": "LLM Provider", "provider": "Groq", "active": bool(os.getenv("GROQ_API_KEY")), "model": "llama-3.3-70b-versatile", "env_var": "GROQ_API_KEY"},
-        {"name": "TTS Provider", "provider": "Cartesia", "active": bool(os.getenv("CARTESIA_API_KEY")), "model": "sonic-multilingual", "env_var": "CARTESIA_API_KEY"},
-        {"name": "STT Provider", "provider": "Deepgram", "active": bool(os.getenv("DEEPGRAM_API_KEY")), "model": "nova-2", "env_var": "DEEPGRAM_API_KEY"},
-        {"name": "LiveKit", "provider": "Cloud", "active": bool(os.getenv("LIVEKIT_API_KEY")), "url": os.getenv("LIVEKIT_URL"), "env_var": "LIVEKIT_API_KEY"},
-        {"name": "Google Gemini", "provider": "Google", "active": bool(os.getenv("GOOGLE_API_KEY")), "model": "gemini-1.5-flash", "env_var": "GOOGLE_API_KEY"}
+        {"name": "Primary LLM", "provider": "Groq", "active": bool(os.getenv("GROQ_API_KEY")), "model": "llama-3.3-70b", "env_var": "GROQ_API_KEY"},
+        {"name": "Backup LLM", "provider": "Google", "active": bool(os.getenv("GOOGLE_API_KEY")), "model": "gemini-2.0-flash", "env_var": "GOOGLE_API_KEY"},
+        {"name": "Voice TTS", "provider": "Cartesia", "active": bool(os.getenv("CARTESIA_API_KEY")), "model": "sonic-es", "env_var": "CARTESIA_API_KEY"},
+        {"name": "STT Live", "provider": "Deepgram", "active": bool(os.getenv("DEEPGRAM_API_KEY")), "model": "nova-2-es", "env_var": "DEEPGRAM_API_KEY"},
+        {"name": "LiveKit HA", "provider": "Cloud", "active": bool(os.getenv("LIVEKIT_API_KEY")), "url": os.getenv("LIVEKIT_URL"), "env_var": "LIVEKIT_API_KEY"},
     ]
 
 @app.get("/api/ai/limits")

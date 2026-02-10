@@ -27,6 +27,43 @@ from livekit.agents import (
     llm,
 )
 
+class RedundantLLMStream(llm.LLMStream):
+    def __init__(self, main_stream_fn, backup_stream_fn, name: str):
+        super().__init__(None, None) # Params not strictly used by our wrapper
+        self._main_stream_fn = main_stream_fn
+        self._backup_stream_fn = backup_stream_fn
+        self._name = name
+        self._current_stream = None
+        self._using_backup = False
+
+    async def __anext__(self):
+        if self._current_stream is None:
+            try:
+                self._current_stream = self._main_stream_fn()
+            except Exception as e:
+                if self._backup_stream_fn:
+                    print(f"🚨 [Redundancy] Error al iniciar stream principal '{self._name}': {e}")
+                    self._current_stream = self._backup_stream_fn()
+                    self._using_backup = True
+                else:
+                    raise e
+
+        try:
+            return await self._current_stream.__anext__()
+        except StopAsyncIteration:
+            raise StopAsyncIteration
+        except Exception as e:
+            if not self._using_backup and self._backup_stream_fn:
+                print(f"🚨 [Redundancy] El stream '{self._name}' falló a mitad (Quota/429): {e}")
+                print(f"🔄 [Redundancy] Cambiando a Backup en caliente...")
+                self._current_stream = self._backup_stream_fn()
+                self._using_backup = True
+                return await self._current_stream.__anext__()
+            raise e
+
+    def __aiter__(self):
+        return self
+
 class RedundantLLM(llm.LLM):
     """Capa de redundancia: si el principal falla, usa el backup automáticamente"""
     def __init__(self, main: llm.LLM, backup: Optional[llm.LLM], name: str):
@@ -36,15 +73,9 @@ class RedundantLLM(llm.LLM):
         self._name = name
 
     def chat(self, **kwargs):
-        # Intentamos obtener el stream del principal
-        try:
-            return self._main.chat(**kwargs)
-        except Exception as e:
-            if self._backup:
-                print(f"🚨 [Redundancy] El motor principal '{self._name}' ha fallado: {e}")
-                print(f"🔄 [Redundancy] ACTIVANDO RESPALDO INMEDIATO...")
-                return self._backup.chat(**kwargs)
-            raise e
+        main_fn = lambda: self._main.chat(**kwargs)
+        backup_fn = (lambda: self._backup.chat(**kwargs)) if self._backup else None
+        return RedundantLLMStream(main_fn, backup_fn, self._name)
 
 from livekit.plugins import (
     silero,
