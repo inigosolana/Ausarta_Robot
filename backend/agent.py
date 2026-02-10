@@ -354,25 +354,31 @@ async def entrypoint(ctx: JobContext):
 
         try:
             if provider == "google":
-                # Google Gemini (NATIVO - Mucho más estable)
+                # Google Gemini (NATIVO)
                 google_key = os.getenv("GOOGLE_API_KEY")
-                if not google_key:
-                    raise ValueError("Falta GOOGLE_API_KEY")
-                      
+                if not google_key: raise ValueError("Falta GOOGLE_API_KEY")
+                print(f"📡 [LLM] Intentando Gemini Nativo: {model_name}")
                 llm_plugin = google.LLM(model=model_name, api_key=google_key)
             else:
                 # Default: Groq (via OpenAI)
-                if not groq_key:
-                    raise ValueError("Falta GROQ_API_KEY")
-                
+                if not groq_key: raise ValueError("Falta GROQ_API_KEY")
                 llm_plugin = openai.LLM(
                     model=model_name, 
                     base_url="https://api.groq.com/openai/v1", 
                     api_key=groq_key
                 )
         except Exception as e:
-            print(f"❌ [Error LLM Init] {e}")
-            raise e
+            print(f"⚠️ [Fallback] Error con {provider} ({e}). Intentando rescate con Groq/Llama...")
+            # Si falla el principal, intentamos Groq como salvavidas
+            if groq_key:
+                llm_plugin = openai.LLM(
+                    model="llama-3.3-70b-versatile", 
+                    base_url="https://api.groq.com/openai/v1", 
+                    api_key=groq_key
+                )
+            else:
+                print(f"❌ [Error LLM Total] {e}")
+                raise e
         session = AgentSession(
             stt=stt,
             llm=llm_plugin,
