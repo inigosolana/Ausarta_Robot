@@ -4,6 +4,8 @@ from typing import Optional
 import os
 import aiohttp
 import asyncio
+import traceback
+import re
 from dotenv import load_dotenv
 from livekit import rtc
 from livekit.agents import (

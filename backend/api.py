@@ -471,8 +471,17 @@ class SettingsUpdate(BaseModel):
 async def update_settings(settings: SettingsUpdate):
     conn = get_db_connection()
     cursor = conn.cursor()
+    # 1. Update app_settings (Global)
     cursor.execute("UPDATE app_settings SET value = ? WHERE key = 'llm_provider'", (settings.llm_provider,))
     cursor.execute("UPDATE app_settings SET value = ? WHERE key = 'llm_model'", (settings.llm_model,))
+    
+    # 2. Sync legacy ai_config (for compatibility)
+    cursor.execute("""
+        UPDATE ai_config 
+        SET llm_provider=?, llm_model=?, updated_at=CURRENT_TIMESTAMP
+        WHERE id = (SELECT id FROM ai_config ORDER BY id DESC LIMIT 1)
+    """, (settings.llm_provider, settings.llm_model))
+    
     conn.commit()
     conn.close()
     return {"status": "success"}
@@ -560,14 +569,25 @@ async def get_ai_config():
 async def update_ai_config(config: AIConfig):
     conn = get_db_connection()
     cursor = conn.cursor()
+    
+    # 1. Update ai_config (Legacy/VoiceAgentsView)
     cursor.execute("""
         UPDATE ai_config 
         SET llm_provider=?, llm_model=?, tts_provider=?, tts_model=?, tts_voice=?, stt_provider=?, stt_model=?, language=?, updated_at=CURRENT_TIMESTAMP
         WHERE id = (SELECT id FROM ai_config ORDER BY id DESC LIMIT 1)
     """, (config.llm_provider, config.llm_model, config.tts_provider, config.tts_model, config.tts_voice, config.stt_provider, config.stt_model, config.language))
+    
     if cursor.rowcount == 0:
         cursor.execute("INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                       (config.llm_provider, config.llm_model, config.tts_provider, config.tts_model, config.tts_voice, config.stt_provider, config.stt_model, config.language))
+    
+    # 2. Sync app_settings (Global/ModelsView)
+    cursor.execute("UPDATE app_settings SET value = ? WHERE key = 'llm_provider'", (config.llm_provider,))
+    cursor.execute("UPDATE app_settings SET value = ? WHERE key = 'llm_model'", (config.llm_model,))
+    # Also create if not exists
+    cursor.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('llm_provider', ?)", (config.llm_provider,))
+    cursor.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('llm_model', ?)", (config.llm_model,))
+    
     conn.commit()
     conn.close()
     return {"status": "success"}
