@@ -373,13 +373,25 @@ async def entrypoint(ctx: JobContext):
         
     except Exception as e:
         import traceback
-        error_msg = str(e)
-        print(f"❌ [Error Crítico] Dakota: {error_msg}")
+        import re
+        
+        # Capturar traza completa para buscar errores anidados (causes)
+        full_error = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+        print(f"❌ [Error Crítico] Dakota: {e}")
         traceback.print_exc()
         
-        # Detectar Rate Limits
-        if "429" in error_msg or "Rate limit" in error_msg:
-            log_system_alert("api_limit", f"Límite de API alcanzado (Groq/Llama). Cambie la API Key o espere. Error: {error_msg[:100]}...")
+        # Detectar Rate Limits (buscando en el error y sus causas)
+        if "429" in full_error or "Rate limit" in full_error or "Quota exceeded" in full_error:
+            # Intentar extraer info de límite
+            limit_info = ""
+            match = re.search(r"Limit (\d+), Used (\d+)", full_error)
+            if match:
+                limit_val = int(match.group(1))
+                used_val = int(match.group(2))
+                percent = (used_val / limit_val) * 100
+                limit_info = f" | Uso: {used_val}/{limit_val} ({percent:.1f}%)"
+            
+            log_system_alert("api_limit", f"⛔ API Groq/OpenAI Límite Alcanzado{limit_info}. Revise UsageView o cambie la API Key.")
 
 if __name__ == "__main__":
     cli.run_app(server)

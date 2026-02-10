@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Globe, Cpu, Mic, Volume2 } from 'lucide-react';
+import { BarChart3, Globe, Cpu, Mic, Volume2, AlertTriangle, XCircle } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || window.location.origin + '/api' || 'http://localhost:8002/api';
 
 const UsageView: React.FC = () => {
     const [integrations, setIntegrations] = useState<any[]>([]);
     const [usage, setUsage] = useState<any>(null);
+    const [alerts, setAlerts] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -22,6 +23,11 @@ const UsageView: React.FC = () => {
 
             if (intRes.ok) setIntegrations(await intRes.json());
             if (usageRes.ok) setUsage(await usageRes.json());
+
+            // Fetch alerts specifically for this view too (or pass from props, but independent fetch is fine)
+            const alertsRes = await fetch(`${API_URL}/alerts`);
+            if (alertsRes.ok) setAlerts(await alertsRes.json());
+
         } catch (error) {
             console.error('Error loading usage data:', error);
         } finally {
@@ -97,6 +103,34 @@ const UsageView: React.FC = () => {
                     <h4 className="text-lg font-bold text-gray-800">Minutos Generados</h4>
                     <p className="text-sm text-gray-500 mt-1">Tiempo total de interacción de voz (TTS/STT)</p>
                 </div>
+            </div>
+
+            {/* System Alerts Log */}
+            <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+                <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+                    <AlertTriangle size={20} className="text-orange-500" />
+                    Registro de Alertas y Límites
+                </h3>
+                {alerts.length === 0 ? (
+                    <p className="text-gray-500 text-sm">No hay alertas activas en el sistema.</p>
+                ) : (
+                    <div className="space-y-3">
+                        {alerts.map((alert) => (
+                            <div key={alert.id} className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-lg flex justify-between items-start">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <XCircle size={16} className="text-red-500" />
+                                        <span className="font-bold text-red-800 uppercase text-xs tracking-wider">{alert.type}</span>
+                                        <span className="text-xs text-red-400">
+                                            {new Date(alert.created_at + (alert.created_at.endsWith('Z') ? '' : 'Z')).toLocaleString()}
+                                        </span>
+                                    </div>
+                                    <p className="text-sm text-red-700 font-medium">{alert.message}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );
