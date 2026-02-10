@@ -204,7 +204,12 @@ REGLAS CRÍTICAS:
         ("ALTER TABLE campaign_leads ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "lead_upd"),
         ("ALTER TABLE encuestas ADD COLUMN transcription TEXT", "enc_trans"),
         ("ALTER TABLE encuestas ADD COLUMN tokens_used INTEGER DEFAULT 0", "enc_tok"),
-        ("ALTER TABLE encuestas ADD COLUMN seconds_used INTEGER DEFAULT 0", "enc_sec")
+        ("ALTER TABLE encuestas ADD COLUMN seconds_used INTEGER DEFAULT 0", "enc_sec"),
+        ("ALTER TABLE campaigns ADD COLUMN retries_count INTEGER DEFAULT 3", "camp_retry_count"),
+        ("ALTER TABLE campaigns ADD COLUMN retry_interval INTEGER DEFAULT 180", "camp_retry_interval"),
+        ("ALTER TABLE campaign_leads ADD COLUMN retries_attempted INTEGER DEFAULT 0", "lead_tries"),
+        ("ALTER TABLE campaign_leads ADD COLUMN last_call_at TIMESTAMP DEFAULT NULL", "lead_last"),
+        ("ALTER TABLE campaign_leads ADD COLUMN next_retry_at TIMESTAMP DEFAULT NULL", "lead_next")
     ]
     
     for sql, name in migraciones:
@@ -273,6 +278,9 @@ class CampaignModel(BaseModel):
     agent_id: Optional[int] = 1
     scheduled_time: Optional[str] = None # ISO format
     status: str = "pending" # pending, running, completed, paused
+    retries_count: Optional[int] = 3
+    retry_interval: Optional[int] = 180 # minutes
+
 
 class CampaignUpdateModel(BaseModel):
     name: Optional[str] = None
@@ -520,8 +528,8 @@ async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO campaigns (name, agent_id, status, scheduled_time) VALUES (?, ?, ?, ?)",
-                      (campaign.name, campaign.agent_id, campaign.status, campaign.scheduled_time))
+        cursor.execute("INSERT INTO campaigns (name, agent_id, status, scheduled_time, retries_count, retry_interval) VALUES (?, ?, ?, ?, ?, ?)",
+                      (campaign.name, campaign.agent_id, campaign.status, campaign.scheduled_time, campaign.retries_count, campaign.retry_interval))
         campaign_id = cursor.lastrowid
         
         # Insert leads
@@ -1015,86 +1023,159 @@ async def colgar(datos: ColgarLlamada):
 # --- BACKGROUND WORKER PARA CAMPAÑAS ---
 
 async def process_campaigns():
-    """Worker que revisa campañas pendientes y lanza las llamadas"""
+    """Worker mejorado: gestiona campañas activas, llamadas nuevas y reintentos automáticos"""
+    from datetime import timedelta
+    
     while True:
         try:
-            # 1. Buscar campañas pendientes
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            # Usamos UTC para comparar con lo que viene del frontend (toISOString)
-            now = datetime.utcnow().isoformat()
+            # --- 1. ACTIVAR CAMPAÑAS PENDIENTES ---
+            now_iso = datetime.utcnow().isoformat()
+            now_dt = datetime.utcnow()
             
-            # Buscar campañas que están pendientes y (no tienen hora O su hora ya pasó)
+            # Buscar pending y marcarlas como running si es hora
             cursor.execute("""
-                SELECT * FROM campaigns 
+                SELECT id, name FROM campaigns 
                 WHERE status = 'pending' 
                 AND (scheduled_time IS NULL OR scheduled_time <= ? OR scheduled_time <= ?)
-            """, (now, now + "Z"))
+            """, (now_iso, now_iso + "Z"))
             
             pending_campaigns = cursor.fetchall()
+            for cmp in pending_campaigns:
+                print(f"🚀 [Worker] Activando campaña '{cmp['name']}' (ID: {cmp['id']})...")
+                cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = ?", (cmp['id'],))
+            conn.commit()
+
+            # --- 2. PROCESAR CAMPAÑAS ACTIVAS (RUNNING) ---
+            cursor.execute("SELECT * FROM campaigns WHERE status = 'running'")
+            running_campaigns = cursor.fetchall()
             
-            for campaign in pending_campaigns:
+            for campaign in running_campaigns:
                 campaign_id = campaign['id']
-                campaign_name = campaign['name']
                 agent_id = campaign['agent_id']
                 
-                print(f"🚀 [Worker] Iniciando campaña '{campaign_name}' (ID: {campaign_id})...")
+                # Configuración de reintentos (defaults si es null)
+                max_retries = campaign['retries_count'] if campaign['retries_count'] is not None else 3
+                retry_interval_min = campaign['retry_interval'] if campaign['retry_interval'] is not None else 180
                 
-                # Marcar como running
-                cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = ?", (campaign_id,))
-                conn.commit()
+                # Buscar leads candidatos:
+                # - PENDING: Nuevos
+                # - FAILED: Para reintentar si no han superado el límite
+                cursor.execute("""
+                    SELECT * FROM campaign_leads 
+                    WHERE campaign_id = ? 
+                    AND (
+                        status = 'pending' 
+                        OR (status = 'failed' AND retries_attempted < ?)
+                    )
+                """, (campaign_id, max_retries))
                 
-                # Obtener leads pendientes
-                cursor.execute("SELECT * FROM campaign_leads WHERE campaign_id = ? AND status = 'pending'", (campaign_id,))
-                leads = cursor.fetchall()
+                potential_leads = cursor.fetchall()
+                leads_to_call = []
                 
-                print(f"📋 [Worker] {len(leads)} leads encontrados para campaña {campaign_id}")
+                for lead in potential_leads:
+                    # Si es pending, siempre se llama
+                    if lead['status'] == 'pending':
+                        leads_to_call.append(lead)
+                        continue
+                        
+                    # Si es failed, verificar si ya pasó el tiempo de espera (next_retry_at)
+                    if lead['status'] == 'failed':
+                        next_retry = lead['next_retry_at']
+                        if not next_retry:
+                            leads_to_call.append(lead) # Si no tiene fecha proxima, reintentar ya
+                        else:
+                            try:
+                                # Parseo básico de fecha ISO que puede venir de SQLite
+                                s_retry = str(next_retry).replace('Z', '')
+                                # Manejo de formatos con/sin microsegundos
+                                if '.' in s_retry:
+                                    target_time = datetime.strptime(s_retry, "%Y-%m-%d %H:%M:%S.%f")
+                                else:
+                                    target_time = datetime.strptime(s_retry, "%Y-%m-%d %H:%M:%S")
+                                    
+                                if now_dt >= target_time:
+                                    leads_to_call.append(lead)
+                            except Exception as e:
+                                # Ante duda de formato, procesar
+                                leads_to_call.append(lead)
+
+                if leads_to_call:
+                    print(f"📋 [Worker] Campaña {campaign_id}: {len(leads_to_call)} leads listos para llamar (inc. reintentos).")
                 
-                for lead in leads:
+                for lead in leads_to_call:
                     phone = lead['phone_number']
                     lead_id = lead['id']
-                    # Intentar obtener el nombre del cliente si existe
-                    customer_name = lead['customer_name'] if 'customer_name' in lead.keys() else None
+                    customer_name = lead['customer_name']
+                    current_retries = lead['retries_attempted'] or 0
                     
-                    print(f"📞 [Worker] Llamando a {phone} ({customer_name or 'Anon'})...")
+                    print(f"📞 [Worker] Llamando a {phone} (Intento {current_retries + 1}/{max_retries + 1})...")
                     
                     try:
-                        # Lanzar llamada usando la función existente con el nombre
+                        # Calcular próxima fecha de reintento POR ADELANTADO (estrategia pesimista)
+                        next_retry_dt = now_dt + timedelta(minutes=retry_interval_min)
+                        
+                        # Actualizar estado a 'intentando' incrementando el contador
+                        cursor.execute("""
+                            UPDATE campaign_leads 
+                            SET retries_attempted = retries_attempted + 1, 
+                                last_call_at = CURRENT_TIMESTAMP,
+                                next_retry_at = ?
+                            WHERE id = ?
+                        """, (next_retry_dt, lead_id))
+                        conn.commit()
+                        
+                        # Lanzar llamada
                         req = OutboundCallRequest(
                             agentId=str(agent_id),
                             phoneNumber=phone,
                             customerName=customer_name,
                             agentName=f"Agent-{agent_id}"
                         )
-                        # Llamada asíncrona pero esperamos para no saturar
                         await make_outbound_call(req)
                         
-                        # Actualizar estado del lead
-                        cursor.execute("UPDATE campaign_leads SET status = 'called', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (lead_id,))
+                        # Si SIP OK -> Status 'called'
+                        cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE id = ?", (lead_id,))
                         conn.commit()
                         
-                        # Pequeña pausa entre llamadas para evitar rate limits
-                        await asyncio.sleep(2) 
+                        await asyncio.sleep(2) # Pausa anti-spam
                         
                     except Exception as e:
-                        print(f"❌ [Worker] Error llamando a {phone}: {e}")
+                        print(f"❌ [Worker] Fallo técnico al llamar {phone}: {e}")
+                        # Marcar failed inmediatamente para que entre en ciclo de retry luego
                         cursor.execute("UPDATE campaign_leads SET status = 'failed' WHERE id = ?", (lead_id,))
                         conn.commit()
+
+                # --- 3. VERIFICAR FIN DE CAMPAÑA ---
+                # Una campaña acaba cuando NO hay leads en: pending, called, o (failed con intentos restantes)
+                cursor.execute("""
+                    SELECT COUNT(*) FROM campaign_leads 
+                    WHERE campaign_id = ? 
+                    AND (
+                        status = 'pending' 
+                        OR status = 'called' 
+                        OR (status = 'failed' AND retries_attempted < ?)
+                    )
+                """, (campaign_id, max_retries))
+                pending_count = cursor.fetchone()[0]
                 
-                # Marcar campaña como completada
-                cursor.execute("UPDATE campaigns SET status = 'completed' WHERE id = ?", (campaign_id,))
-                conn.commit()
-                print(f"✅ [Worker] Campaña '{campaign_name}' finalizada.")
+                if pending_count == 0:
+                    print(f"✅ [Worker] Campaña {campaign_id} (retries={max_retries}) completada definitivamente.")
+                    cursor.execute("UPDATE campaigns SET status = 'completed' WHERE id = ?", (campaign_id,))
+                    conn.commit()
 
             cursor.close()
             conn.close()
             
         except Exception as e:
             print(f"⚠️ [Worker] Error en ciclo de campañas: {e}")
+            import traceback
+            traceback.print_exc()
             
-        # Esperar 10 segundos antes de la siguiente revisión
-        await asyncio.sleep(10)
+        # Esperar 20 segundos para no saturar comprobando reintentos
+        await asyncio.sleep(20)
 
 @app.on_event("startup")
 async def startup_event():
