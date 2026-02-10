@@ -14,13 +14,27 @@ load_dotenv()
 app = FastAPI()
 
 # --- CONEXIÓN DB ---
+# --- CONEXIÓN DB (POOLING) ---
+db_config = {
+    "host": os.getenv('DB_HOST', 'localhost'),
+    "user": os.getenv('DB_USER', 'ausarta_user'),
+    "password": os.getenv('DB_PASSWORD', 'Noruega.15'),
+    "database": os.getenv('DB_NAME', 'encuestas_ausarta'),
+    "pool_name": "my_pool",
+    "pool_size": 5
+}
+
 def get_db_connection():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        user=os.getenv('DB_USER', 'ausarta_user'),
-        password=os.getenv('DB_PASSWORD', 'Noruega.15'),
-        database=os.getenv('DB_NAME', 'encuestas_ausarta')
-    )
+    # Intentamos obtener una conexión del pool o crear uno si no existe
+    try:
+        return mysql.connector.connect(**db_config)
+    except mysql.connector.Error as e:
+        # Fallback simple
+        print(f"⚠️ Error pool DB, conectando directo: {e}")
+        return mysql.connector.connect(
+             host=db_config["host"], user=db_config["user"], 
+             password=db_config["password"], database=db_config["database"]
+        )
 
 # --- MODELOS ---
 class InicioEncuesta(BaseModel):

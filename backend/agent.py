@@ -157,7 +157,8 @@ server = AgentServer(setup_fnc=prewarm)
 
 @server.rtc_session(agent_name="Dakota-1ef9")
 async def entrypoint(ctx: JobContext):
-    print(f"🔍 [DEBUG] Entrypoint llamado para sala: {ctx.room.name}")
+    pid = os.getpid()
+    print(f"🔍 [DEBUG] Entrypoint llamado para sala: {ctx.room.name} (PID: {pid})")
     ai_config, agent_config = get_config()
     
     # Usamos llama-3.1-8b-instant para evitar el Rate Limit de Groq (es muy rápido y tiene más cupo)
@@ -270,6 +271,7 @@ async def entrypoint(ctx: JobContext):
         )
 
         async def cleanup():
+            print(f"🛑 [Shutdown] Iniciando limpieza para sala: {ctx.room.name}")
             if survey_id:
                 final_status = 'completed' if agent_instance.interaction_count > 0 else 'failed'
                 url = f"http://127.0.0.1:8001/guardar-encuesta"
@@ -280,9 +282,15 @@ async def entrypoint(ctx: JobContext):
                     **agent_instance.current_scores
                 }
                 try:
+                    # Timeout reducido a 2s para evitar zombies
+                    print(f"💾 [Shutdown] Guardando datos finales (timeout 2s)...")
                     async with aiohttp.ClientSession() as s:
-                        await s.post(url, json=payload, timeout=5)
-                except: pass
+                        await s.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=2))
+                    print(f"✅ [Shutdown] Datos guardados.")
+                except Exception as e:
+                    print(f"⚠️ [Shutdown] No se pudo guardar survey_id={survey_id}: {e}")
+            
+            print(f"👋 [Shutdown] Limpieza completada.")
 
         ctx.add_shutdown_callback(cleanup)
 
