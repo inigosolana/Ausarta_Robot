@@ -45,6 +45,45 @@ interface Integration {
     env_var?: string;
 }
 
+const StatCard = ({ title, value, icon: Icon, color }: any) => (
+    <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div>
+            <p className="text-sm font-medium text-gray-500">{title}</p>
+            <h3 className="text-3xl font-bold text-gray-800 mt-2">{value}</h3>
+        </div>
+        <div className={`p-3 rounded-full bg-${color}-50 text-${color}-600`}>
+            <Icon size={24} />
+        </div>
+    </div>
+);
+
+const IntegrationCard: React.FC<{ integ: Integration }> = ({ integ }) => (
+    <div className={`p-4 rounded-xl border flex items-center justify-between ${integ.active ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+        <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-full ${integ.active ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                <Zap size={18} />
+            </div>
+            <div>
+                <h4 className="font-semibold text-gray-900 text-sm">{integ.name}</h4>
+                <p className="text-xs text-gray-500">{integ.provider} • {integ.model || 'Cloud'}</p>
+                {!integ.active && integ.env_var && (
+                    <code className="text-[10px] bg-red-100 text-red-700 px-1 rounded block mt-1 w-fit">
+                        Missing: {integ.env_var}
+                    </code>
+                )}
+                {integ.active && integ.env_var && (
+                    <code className="text-[10px] bg-green-100 text-green-700 px-1 rounded block mt-1 w-fit">
+                        active: {integ.env_var}
+                    </code>
+                )}
+            </div>
+        </div>
+        <div className={`px-2 py-1 rounded text-xs font-bold uppercase ${integ.active ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
+            {integ.active ? 'Active' : 'Offline'}
+        </div>
+    </div>
+);
+
 const DashboardView: React.FC = () => {
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [recentCalls, setRecentCalls] = useState<Call[]>([]);
@@ -75,44 +114,7 @@ const DashboardView: React.FC = () => {
         }
     };
 
-    const StatCard = ({ title, value, icon: Icon, color }: any) => (
-        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between">
-            <div>
-                <p className="text-sm font-medium text-gray-500">{title}</p>
-                <h3 className="text-3xl font-bold text-gray-800 mt-2">{value}</h3>
-            </div>
-            <div className={`p-3 rounded-full bg-${color}-50 text-${color}-600`}>
-                <Icon size={24} />
-            </div>
-        </div>
-    );
 
-    const IntegrationCard = ({ integ }: { integ: Integration }) => (
-        <div className={`p-4 rounded-xl border flex items-center justify-between ${integ.active ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
-            <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-full ${integ.active ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                    <Zap size={18} />
-                </div>
-                <div>
-                    <h4 className="font-semibold text-gray-900 text-sm">{integ.name}</h4>
-                    <p className="text-xs text-gray-500">{integ.provider} • {integ.model || 'Cloud'}</p>
-                    {!integ.active && integ.env_var && (
-                        <code className="text-[10px] bg-red-100 text-red-700 px-1 rounded block mt-1 w-fit">
-                            Missing: {integ.env_var}
-                        </code>
-                    )}
-                    {integ.active && integ.env_var && (
-                        <code className="text-[10px] bg-green-100 text-green-700 px-1 rounded block mt-1 w-fit">
-                            active: {integ.env_var}
-                        </code>
-                    )}
-                </div>
-            </div>
-            <div className={`px-2 py-1 rounded text-xs font-bold uppercase ${integ.active ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
-                {integ.active ? 'Active' : 'Offline'}
-            </div>
-        </div>
-    );
 
     if (isLoading) return <div className="p-8 text-center text-gray-500">Cargando dashboard...</div>;
 
