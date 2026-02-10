@@ -138,12 +138,16 @@ TU MISIÓN:
    - "Del 1 al 10, ¿rapidez?" -> GUARDA RESPUESTA con guardar_encuesta.
 4. Pide comentario final.
 
-REGLAS CRÍTICAS:
-- PRONUNCIACIÓN: Di siempre "UNO" para el número 1. Nunca digas "un".
-- CIERRE: Si capturas un comentario o si dicen que NO quieren dejar comentario, debes usar 'guardar_encuesta' pasando el argumento status='completed'. 
-- Tras guardar con status='completed', di "Gracias, adiós" y usa 'finalizar_llamada'.
-- Si cuelgan antes, no te preocupes, el sistema guardará lo que lleves.
-- Usa 'guardar_encuesta' tras cada dato obtenido.""",
+REGLAS DE ORO:
+    - NUNCA menciones IDs técnicos, números de sala (ej: encuesta_123) ni nombres de bases de datos.
+    - NO REPITAS las notas que te diga el cliente. Si te dice "un ocho", no digas "Perfecto, un ocho", di simplemente "Gracias" o pasa a la siguiente pregunta.
+    - Si el cliente cuelga pronto o dice que no puede hablar, no insistas. Simplemente guarda lo que tengas.
+    - Cuando digas el número 1, di SIEMPRE "uno".
+    - Sé directo, educado y muy breve. Una encuesta de menos de 1 minuto.
+    - Usa 'guardar_encuesta' INMEDIATAMENTE tras cada respuesta para registrar los datos. No esperes a terminar el guion.
+    - Al terminar el comentario o si dice que NO tiene ninguno, di: "Muchas gracias por su tiempo. Que tenga un buen día. Adiós." y usa 'finalizar_llamada' inmediatamente. (Asegúrate de haber llamado a guardar_encuesta con status='completed' antes).
+    - MUY IMPORTANTE: Mantén el flujo de la conversación por ti misma. Escucha al cliente y pasa a la siguiente pregunta sin esperar instrucciones externas.
+    """,
                 'Hola, soy Dakota de Ausarta. ¿Tiene un minuto para una encuesta rápida de calidad?'
             )
         ''')
@@ -176,10 +180,12 @@ TU MISIÓN:
 4. Finalmente, pregunta: "¿Tiene algún comentario adicional o sugerencia para mejorar?"
 
 REGLAS CRÍTICAS:
-- NO TE INVENTES LOS DATOS. Solo usa la herramienta 'guardar_encuesta' cuando hayas obtenido las 3 notas numéricas.
+- NO TE INVENTES LOS DATOS. Solo usa la herramienta 'guardar_encuesta' cuando hayas obtenido las notas.
+- NO REPITAS las notas del cliente. Pasa a la siguiente pregunta de forma fluida.
 - Si el usuario da una nota vaga ("muy bien"), pregunta: "¿Eso sería un 9 o un 10?".
-- Una vez guardados los datos, despídete amablemente y usa la herramienta 'finalizar_llamada'.
-- Si el usuario dice que NO quiere participar al principio, di "Lo entiendo, gracias por su tiempo" y corta la llamada."""
+- Una vez guardados los datos o si no hay comentario adicional, di "Muchas gracias por su tiempo. Que tenga un buen día. Adiós" y usa la herramienta 'finalizar_llamada'.
+- NUNCA digas el ID de la encuesta ni el nombre de la sala.
+- Si el usuario dice que NO quiere participar al principio, di "Lo entiendo, gracias por su tiempo. Adiós" y corta la llamada."""
         
         cursor.execute('INSERT INTO prompt_templates (name, description, content) VALUES (?, ?, ?)', 
                       ('Encuesta Calidad Ausarta', 'Guion completo con preguntas explícitas', default_prompt))
@@ -819,9 +825,13 @@ async def guardar_encuesta(datos: FinEncuesta):
     print(f"📥 2. Recibiendo datos. La IA dice ID: {datos.id_encuesta}")
     
     def clean_nota(val):
+        if val is None: return None
         try:
-            num = int(val)
-            if 1 <= num <= 10: return num
+            # Intentar extraer el primer número que aparezca (por si mandan "8/10" o "un 7")
+            match = re.search(r'\d+', str(val))
+            if match:
+                num = int(match.group())
+                if 1 <= num <= 10: return num
             return None 
         except: return None
     

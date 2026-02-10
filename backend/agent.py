@@ -253,6 +253,7 @@ async def entrypoint(ctx: JobContext):
         agent_instance.interaction_count = 0
         agent_instance.total_tokens = 0
         agent_instance.total_seconds = 0
+        agent_instance.last_client_text = "" # Guardar lo último dicho por el cliente
 
         @session.on("transcription_received")
         def on_transcription(transcript):
@@ -262,6 +263,7 @@ async def entrypoint(ctx: JobContext):
                 print(f"🎤 {msg}")
                 if role == "Cliente":
                     agent_instance.interaction_count += 1
+                    agent_instance.last_client_text = transcript.text
                 agent_instance.full_transcript += f"{msg}\n"
 
         # Capturar uso de tokens de los eventos de la sesión (si el plugin lo soporta)
@@ -295,6 +297,8 @@ async def entrypoint(ctx: JobContext):
                 # Si el agente marcó completada explícitamente, status='completed'
                 # Si no, mandamos None para que api.py NO marque como completada (Pendiente)
                 final_status = 'completed' if agent_instance.is_completed else None
+                
+                print(f"🔍 [Cleanup] Preparando guardado. interaction_count={agent_instance.interaction_count}, scores={agent_instance.current_scores}")
                 
                 # Intentar usar la URL del Bridge detectada o 127.0.0.1
                 url = f"http://127.0.0.1:8001/guardar-encuesta"
