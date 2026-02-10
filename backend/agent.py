@@ -24,7 +24,27 @@ from livekit.agents import (
     inference,
     room_io,
     utils,
+    llm,
 )
+
+class RedundantLLM(llm.LLM):
+    """Capa de redundancia: si el principal falla, usa el backup automáticamente"""
+    def __init__(self, main: llm.LLM, backup: Optional[llm.LLM], name: str):
+        super().__init__()
+        self._main = main
+        self._backup = backup
+        self._name = name
+
+    def chat(self, **kwargs):
+        try:
+            return self._main.chat(**kwargs)
+        except Exception as e:
+            if self._backup:
+                print(f"🚨 [Redundancy] El motor '{self._name}' ha fallado: {e}")
+                print(f"🔄 [Redundancy] Saltando a motor de respaldo inmediatamente...")
+                return self._backup.chat(**kwargs)
+            raise e
+
 from livekit.plugins import (
     silero,
     openai,
@@ -352,33 +372,35 @@ async def entrypoint(ctx: JobContext):
 
         print(f"⚙️ [LLM Config] Final -> Provider: {provider} | Model: {model_name}")
 
-        try:
-            if provider == "google":
-                # Google Gemini (NATIVO)
-                google_key = os.getenv("GOOGLE_API_KEY")
-                if not google_key: raise ValueError("Falta GOOGLE_API_KEY")
-                
-                print(f"📡 [LLM] Iniciando Google Gemini: {model_name}")
-                llm_plugin = google.LLM(model=model_name, api_key=google_key)
-            else:
-                # Default: Groq (via OpenAI)
-                if not groq_key: raise ValueError("Falta GROQ_API_KEY")
-                llm_plugin = openai.LLM(
-                    model=model_name, 
-                    base_url="https://api.groq.com/openai/v1", 
-                    api_key=groq_key
-                )
-        except Exception as e:
-            print(f"⚠️ [Fallback LLM] Error con {provider}: {e}. Rescatando con Groq...")
-            # Si todo falla, intentamos Groq/Llama
-            if provider != "groq" and groq_key:
-                llm_plugin = openai.LLM(
+        # 2. Inicialización de Redundancia Dual (Alta Disponibilidad)
+        groq_plugin = None
+        if groq_key:
+            try:
+                groq_plugin = openai.LLM(
                     model="llama-3.3-70b-versatile", 
                     base_url="https://api.groq.com/openai/v1", 
                     api_key=groq_key
                 )
-            else:
-                raise e
+            except Exception as e: print(f"⚠️ [Init] Groq no disponible: {e}")
+
+        google_plugin = None
+        if google_key:
+            try:
+                # Usar el modelo que sabemos que existe por el diagnóstico
+                google_plugin = google.LLM(model="models/gemini-2.0-flash", api_key=google_key)
+            except Exception as e: print(f"⚠️ [Init] Google no disponible: {e}")
+
+        # 3. Empaquetar en el motor redundante
+        if provider == "google" and google_plugin:
+            print(f"⚙️ [Redundancy] Configura: Google (Principal) / Groq (Respaldo)")
+            llm_plugin = RedundantLLM(main=google_plugin, backup=groq_plugin, name="Google Gemini")
+        elif groq_plugin:
+            print(f"⚙️ [Redundancy] Configura: Groq (Principal) / Google (Respaldo)")
+            llm_plugin = RedundantLLM(main=groq_plugin, backup=google_plugin, name="Groq Llama")
+        else:
+            print(f"❌ [Error] Ningún motor LLM disponible. El agente fallará.")
+            raise ValueError("No LLM keys available")
+
         session = AgentSession(
             stt=stt,
             llm=llm_plugin,
