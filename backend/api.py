@@ -237,7 +237,8 @@ REGLAS CRÍTICAS:
         ("ALTER TABLE campaigns ADD COLUMN retry_interval INTEGER DEFAULT 180", "camp_retry_interval"),
         ("ALTER TABLE campaign_leads ADD COLUMN retries_attempted INTEGER DEFAULT 0", "lead_tries"),
         ("ALTER TABLE campaign_leads ADD COLUMN last_call_at TIMESTAMP DEFAULT NULL", "lead_last"),
-        ("ALTER TABLE campaign_leads ADD COLUMN next_retry_at TIMESTAMP DEFAULT NULL", "lead_next")
+        ("ALTER TABLE campaign_leads ADD COLUMN next_retry_at TIMESTAMP DEFAULT NULL", "lead_next"),
+        ("ALTER TABLE encuestas ADD COLUMN llm_model VARCHAR(100) DEFAULT NULL", "enc_model")
     ]
     
     for sql, name in migraciones:
@@ -334,6 +335,7 @@ class FinEncuesta(BaseModel):
     status: Optional[str] = None # 'completed', 'failed', etc.
     tokens_used: Optional[int] = 0
     seconds_used: Optional[int] = 0
+    llm_model: Optional[str] = None
 
 class ColgarLlamada(BaseModel):
     nombre_sala: str
@@ -401,7 +403,7 @@ async def get_recent_calls():
     cursor.execute("""
         SELECT id, telefono, fecha, completada,
                puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez,
-               comentarios, transcription
+               comentarios, transcription, llm_model
         FROM encuestas 
         ORDER BY fecha DESC LIMIT 10
     """)
@@ -420,7 +422,8 @@ async def get_recent_calls():
                 "comercial": row['puntuacion_comercial'],
                 "instalador": row['puntuacion_instalador'],
                 "rapidez": row['puntuacion_rapidez']
-            }
+            },
+            "llm_model": row['llm_model']
         })
     return results
 
@@ -1156,6 +1159,10 @@ async def guardar_encuesta(datos: FinEncuesta):
         if datos.seconds_used:
             update_fields.append("seconds_used = ?")
             params.append(datos.seconds_used)
+            
+        if datos.llm_model:
+            update_fields.append("llm_model = ?")
+            params.append(datos.llm_model)
 
         if datos.status is not None:
             # Si status es 'completed', marcamos la encuesta como completada en BD
@@ -1176,20 +1183,6 @@ async def guardar_encuesta(datos: FinEncuesta):
             phone_res = cursor.fetchone()
             if phone_res:
                 cursor.execute("UPDATE campaign_leads SET status = ? WHERE phone_number = ? AND status IN ('pending', 'called')", (lead_status, phone_res[0]))
-        elif len(update_fields) > 1:
-            notas_rescatadas = [f for f in update_fields if 'puntuacion' in f]
-            # Si hay AL MENOS UNA nota rescatada o comentario, damos la ficha por válida (completada)
-            if len(notas_rescatadas) >= 1 or "comentarios" in str(update_fields):
-                print(f"✅ [Auto-Close] Marcando ficha {id_final} como completada por rescate exitoso.")
-                update_fields.append("completada = 1")
-                # Al rescatar datos, la damos por completada
-                cursor.execute("UPDATE campaign_leads SET status = 'completed' WHERE call_id = ?", (id_final,))
-                
-                cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))
-                phone_res = cursor.fetchone()
-                if phone_res:
-                    cursor.execute("UPDATE campaign_leads SET status = 'completed' WHERE phone_number = ? AND status IN ('pending', 'called')", (phone_res[0],))
-
         update_fields.append("updated_at = CURRENT_TIMESTAMP")
 
         if not update_fields:

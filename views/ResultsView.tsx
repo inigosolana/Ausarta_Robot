@@ -12,6 +12,7 @@ interface SurveyResult {
     puntuacion_rapidez: number | null;
     comentarios: string | null;
     transcription: string | null;
+    llm_model: string | null;
 }
 
 const ResultsView: React.FC = () => {
@@ -47,7 +48,7 @@ const ResultsView: React.FC = () => {
     );
 
     const exportCSV = () => {
-        const headers = ["ID", "Teléfono", "Fecha", "Completada", "P. Comercial", "P. Instalador", "P. Rapidez", "Comentarios", "Transcripción"];
+        const headers = ["ID", "Teléfono", "Fecha", "Completada", "Modelo LLM", "P. Comercial", "P. Instalador", "P. Rapidez", "Comentarios", "Transcripción"];
         const csvContent = [
             headers.join(","),
             ...results.map(r => [
@@ -55,6 +56,7 @@ const ResultsView: React.FC = () => {
                 r.telefono,
                 new Date(r.fecha).toLocaleString(),
                 r.completada ? "Sí" : "No",
+                r.llm_model || "Groq",
                 r.puntuacion_comercial || "",
                 r.puntuacion_instalador || "",
                 r.puntuacion_rapidez || "",
@@ -122,6 +124,7 @@ const ResultsView: React.FC = () => {
                                 <th className="px-6 py-3">Date</th>
                                 <th className="px-6 py-3 text-center">Status</th>
                                 <th className="px-6 py-3 text-center">Scores (C/I/R)</th>
+                                <th className="px-6 py-3">Model</th>
                                 <th className="px-6 py-3">Comments</th>
                                 <th className="px-6 py-3 text-right">More</th>
                             </tr>
@@ -180,6 +183,16 @@ const ResultsView: React.FC = () => {
                                                     </span>
                                                 </div>
                                             ))}
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <div className="flex flex-col">
+                                            <span className="text-[10px] text-gray-400 font-mono tracking-tighter uppercase whitespace-nowrap">
+                                                {row.llm_model?.split(' ')[0] || 'Primary'}
+                                            </span>
+                                            <span className="text-xs font-semibold text-gray-700">
+                                                {row.llm_model?.replace('Google ', '').replace('Groq ', '') || 'Llama 3.3'}
+                                            </span>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">

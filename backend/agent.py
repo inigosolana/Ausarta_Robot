@@ -74,18 +74,23 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
     return [(c[0], c[1]) for c in candidates]
 
 class RedundantLLMStream(llm.LLMStream):
-    def __init__(self, candidates: list):
+    def __init__(self, candidates: list, parent_agent=None):
         super().__init__(None, None)
         self._candidates = candidates # Lista de (nombre, factory_fn)
         self._current_idx = 0
         self._current_stream = None
+        self._parent_agent = parent_agent
+        if self._parent_agent and self._candidates:
+            self._parent_agent.active_llm_model = self._candidates[0][0]
 
     async def _handle_fallback(self):
         """Intenta saltar al siguiente candidato disponible"""
         self._current_idx += 1
         if self._current_idx < len(self._candidates):
             name, fn = self._candidates[self._current_idx]
-            print(f"� [Redundancy] Reintentando con candidato #{self._current_idx + 1}: {name}...")
+            print(f"🔄 [Redundancy] Reintentando con candidato #{self._current_idx + 1}: {name}...")
+            if self._parent_agent:
+                self._parent_agent.active_llm_model = name
             try:
                 self._current_stream = fn()
                 return True
@@ -123,9 +128,10 @@ class RedundantLLMStream(llm.LLMStream):
 
 class RedundantLLM(llm.LLM):
     """Encadena múltiples candidatos (Google 2.0 -> Google 1.5 -> Groq Llama -> Groq Mixtral)"""
-    def __init__(self, candidates: list):
+    def __init__(self, candidates: list, parent_agent=None):
         super().__init__()
         self._candidates = candidates
+        self._parent_agent = parent_agent
 
     def chat(self, **kwargs):
         # Creamos factories para que cada reintento sea una petición fresca
@@ -133,7 +139,7 @@ class RedundantLLM(llm.LLM):
         for name, plugin in self._candidates:
             if plugin:
                 factories.append((name, lambda p=plugin: p.chat(**kwargs)))
-        return RedundantLLMStream(factories)
+        return RedundantLLMStream(factories, parent_agent=self._parent_agent)
 
 from livekit.plugins import (
     silero,
@@ -217,6 +223,7 @@ class DefaultAgent(Agent):
         self.greeting = greeting
         self.current_scores = {} # Cache de seguridad
         self.is_completed = False # Flag de encuesta terminada
+        self.active_llm_model = "Desconocido"
         
         # Metrics
         self.total_tokens = 0
@@ -245,7 +252,8 @@ class DefaultAgent(Agent):
             "transcription": transcript,
             "status": status,
             "tokens_used": self.total_tokens,
-            "seconds_used": seconds_used
+            "seconds_used": seconds_used,
+            "llm_model": self.active_llm_model
         }
         
         url = f"{self.server_url}/guardar-encuesta"
@@ -479,7 +487,7 @@ async def entrypoint(ctx: JobContext):
                 raise ValueError("No LLM services available after health check")
 
         print(f"⚙️ [Redundancy] HA Dinámica activada: {[c[0] for c in candidates]}")
-        llm_plugin = RedundantLLM(candidates=candidates)
+        llm_plugin = RedundantLLM(candidates=candidates, parent_agent=agent_instance)
 
 
         session = AgentSession(
