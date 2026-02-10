@@ -5,6 +5,7 @@ livekit-plugins-openai
 livekit-plugins-deepgram
 livekit-plugins-cartesia
 livekit-plugins-silero
+livekit-plugins-google
 python-dotenv
 requests
 aiohttp

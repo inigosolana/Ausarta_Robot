@@ -30,6 +30,7 @@ from livekit.plugins import (
     openai,
     cartesia,
     deepgram,
+    google,
 )
 
 logger = logging.getLogger("agent-Dakota-1ef9")
@@ -350,18 +351,14 @@ async def entrypoint(ctx: JobContext):
 
         try:
             if provider == "google":
-                # Google Gemini (via OpenAI compatible endpoint)
+                # Google Gemini (NATIVO - Mucho más estable)
                 google_key = os.getenv("GOOGLE_API_KEY")
                 if not google_key:
                     raise ValueError("Falta GOOGLE_API_KEY")
                       
-                llm_plugin = openai.LLM(
-                    model=model_name,
-                    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                    api_key=google_key
-                )
+                llm_plugin = google.LLM(model=model_name, api_key=google_key)
             else:
-                # Default: Groq
+                # Default: Groq (via OpenAI)
                 if not groq_key:
                     raise ValueError("Falta GROQ_API_KEY")
                 
