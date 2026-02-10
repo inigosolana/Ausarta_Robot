@@ -7,3 +7,4 @@ livekit-plugins-cartesia
 livekit-plugins-silero
 python-dotenv
 requests
+aiohttp
