@@ -179,7 +179,7 @@ async def entrypoint(ctx: JobContext):
     else:
         llm_model = db_model or 'llama-3.3-70b-versatile'
     tts_model = ai_config.get('tts_model') or 'sonic-multilingual'
-    tts_voice = ai_config.get('tts_voice') or '6511153f-72f9-4314-a204-8d8d8afd646a'
+    tts_voice = ai_config.get('tts_voice') or 'fb926b21-4d92-411a-85d0-9d06859e2171'
     stt_model = ai_config.get('stt_model') or 'nova-2'
     
     print(f"🛠️ [Agent] Usando modelos: LLM={llm_model}, TTS={tts_model}, STT={stt_model}")
@@ -224,7 +224,8 @@ async def entrypoint(ctx: JobContext):
         
         # Usar los plugins directamente (inference.STT/TTS
         stt = deepgram.STT(model=stt_model, language="es")
-        tts = cartesia.TTS(model=tts_model, voice=tts_voice)
+        # Forzar language='es' para evitar acento "chino/americano" en modelo multilingual
+        tts = cartesia.TTS(model=tts_model, voice=tts_voice, language="es")
         
         # Validar API Key
         groq_key = os.getenv("GROQ_API_KEY")

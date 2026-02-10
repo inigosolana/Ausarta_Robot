@@ -45,10 +45,10 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
     llm_provider: 'groq',
     llm_model: 'llama-3.3-70b-versatile',
     tts_provider: 'cartesia',
-    tts_model: 'sonic-3',
-    tts_voice: '6511153f-72f9-4314-a204-8d8d8afd646a',
+    tts_model: 'sonic-multilingual',
+    tts_voice: 'fb926b21-4d92-411a-85d0-9d06859e2171',
     stt_provider: 'deepgram',
-    stt_model: 'nova-3',
+    stt_model: 'nova-2',
     language: 'es'
   });
 
