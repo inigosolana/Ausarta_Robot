@@ -340,8 +340,11 @@ async def entrypoint(ctx: JobContext):
         # Auto-corrección de seguridad para evitar 404s cruzados
         if provider == "google":
             if "gemini" not in model_name.lower():
-                 print(f"⚠️ [Correction] Se pidió Google pero el modelo era '{model_name}'. Forzando 'gemini-1.5-flash'.")
-                 model_name = "gemini-1.5-flash"
+                 print(f"⚠️ [Correction] Se pidió Google pero el modelo era '{model_name}'. Forzando 'models/gemini-1.5-flash'.")
+                 model_name = "models/gemini-1.5-flash"
+            elif not model_name.startswith("models/"):
+                 print(f"⚠️ [Correction] Añadiendo prefijo 'models/' a {model_name}")
+                 model_name = f"models/{model_name}"
         elif provider == "groq":
             if "gemini" in model_name.lower():
                  print(f"⚠️ [Correction] Se pidió Groq pero el modelo era '{model_name}'. Forzando 'llama-3.3-70b-versatile'.")
