@@ -859,14 +859,12 @@ async def guardar_encuesta(datos: FinEncuesta):
                 id_final = res[0]
                 print(f"💡 ¡ENCONTRADO! Usaremos la ficha {id_final}.")
             else:
-                # Fallback: última ficha creada (aunque esté cerrada, para corregir)
                 cursor.execute("SELECT id FROM encuestas ORDER BY id DESC LIMIT 1")
                 res_last = cursor.fetchone()
                 if res_last: id_final = res_last[0]
 
         if not id_final: return {"status": "error", "msg": "No ID found"}
 
-        # Dynamic Update Query Construction
         update_fields = []
         params = []
 
@@ -888,7 +886,6 @@ async def guardar_encuesta(datos: FinEncuesta):
                 update_fields.append("puntuacion_rapidez = ?")
                 params.append(val)
 
-        # RESCATE: Si no vienen notas pero hay transcripción, intentar extraerlas del texto
         if datos.transcription:
             lines = datos.transcription.split('\n')
             mapping = {
@@ -899,7 +896,6 @@ async def guardar_encuesta(datos: FinEncuesta):
             
             for col, keywords in mapping.items():
                 if not any(col in f for f in update_fields):
-                    # Buscar la respuesta del cliente tras una pregunta que contenga la keyword
                     for i in range(len(lines) - 1):
                         agente_line = lines[i].lower()
                         if "agente:" in agente_line and any(k in agente_line for k in keywords):
@@ -928,30 +924,29 @@ async def guardar_encuesta(datos: FinEncuesta):
             update_fields.append("seconds_used = ?")
             params.append(datos.seconds_used)
 
-        # Solo actualizamos el estado de 'completada' si se nos indica explícitamente un status
-        # O si hemos rescatado al menos una nota y la transcripción parece cortada
         if datos.status is not None:
             final_complete = 0 if datos.status == 'failed' else 1
             update_fields.append("completada = ?")
             params.append(final_complete)
             
-            # Solo sincronizamos con campañas al finalizar de verdad
             lead_status = 'called' if final_complete == 1 else 'failed'
             cursor.execute("UPDATE campaign_leads SET status = ? WHERE call_id = ?", (lead_status, id_final))
-        elif len(update_fields) > 1: # Si hemos rescatado algo nuevo
-             # Si tenemos al menos 2 notas o comentarios, marcamos como completada
-             # para que no aparezca como eterna 'Pendiente' si el usuario colgó al final
-             notas_rescatadas = [f for f in update_fields if 'puntuacion' in f]
-             if len(notas_rescatadas) >= 2 or "comentarios" in str(update_fields):
-                 print(f"✅ [Auto-Close] Marcando ficha {id_final} como completada por rescate exitoso.")
-                 update_fields.append("completada = 1")
-                 cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE call_id = ?", (id_final,))
             
-            # Fallback por teléfono (para asegurar)
             cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))
             phone_res = cursor.fetchone()
             if phone_res:
                 cursor.execute("UPDATE campaign_leads SET status = ? WHERE phone_number = ? AND status = 'pending'", (lead_status, phone_res[0]))
+        elif len(update_fields) > 1:
+            notas_rescatadas = [f for f in update_fields if 'puntuacion' in f]
+            if len(notas_rescatadas) >= 2 or "comentarios" in str(update_fields):
+                print(f"✅ [Auto-Close] Marcando ficha {id_final} como completada por rescate exitoso.")
+                update_fields.append("completada = 1")
+                cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE call_id = ?", (id_final,))
+                
+                cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))
+                phone_res = cursor.fetchone()
+                if phone_res:
+                    cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE phone_number = ? AND status = 'pending'", (phone_res[0],))
 
         update_fields.append("updated_at = CURRENT_TIMESTAMP")
 
@@ -973,7 +968,6 @@ async def guardar_encuesta(datos: FinEncuesta):
 async def colgar(datos: ColgarLlamada):
     print(f"✂️  Petición de colgar recibida.")
     
-    # Pausa para dar tiempo a la despedida
     # Pausa para dar tiempo a la despedida
     print("⏳ Esperando 3 segundos para dar tiempo a la despedida...")
     await asyncio.sleep(3.0) 
