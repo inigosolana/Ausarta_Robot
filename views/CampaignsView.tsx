@@ -516,7 +516,21 @@ export function CampaignsView() {
                 <p className="text-xs text-gray-400 mt-1">.csv files only</p>
               </div>
               <div className="mt-2 text-right">
-                <a href="#" className="text-xs text-blue-600 hover:underline flex items-center justify-end gap-1">
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const csvContent = "phone,name\n+34600123456,Cliente Ejemplo\n+34600999999,Otro Cliente";
+                    const blob = new Blob([csvContent], { type: 'text/csv' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = "plantilla_clientes.csv";
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                  }}
+                  className="text-xs text-blue-600 hover:underline flex items-center justify-end gap-1"
+                >
                   <Upload className="w-3 h-3" /> Download Template
                 </a>
               </div>
