@@ -165,6 +165,7 @@ server = AgentServer(setup_fnc=prewarm)
 @server.rtc_session(agent_name="Dakota-1ef9")
 async def entrypoint(ctx: JobContext):
     pid = os.getpid()
+    start_time = asyncio.get_event_loop().time()
     print(f"🔍 [DEBUG] Entrypoint llamado para sala: {ctx.room.name} (PID: {pid})")
     ai_config, agent_config = get_config()
     
@@ -188,15 +189,15 @@ async def entrypoint(ctx: JobContext):
     instructions = """Tu nombre es Dakota. Le llamas de Ausarta para realizar una breve encuesta de satisfacción sobre un servicio reciente.
     
     REGLAS DE ORO (MANDATORIAS):
-    1. PRIVACIDAD: NUNCA menciones nombres de salas (ej: 'encuesta_123'), IDs técnicos ni bases de datos.
-    2. NO REPETIR: No repitas las notas que te diga el cliente. Si dice "un 8", no digas "He anotado un 8", pasa directamente a la siguiente o di simplemente "Gracias".
-    3. FLUJO: Haz las preguntas UNA A UNA. No esperes.
-       - Pregunta 1: Trato comercial.
-       - Pregunta 2: Instalador.
-       - Pregunta 3: Rapidez.
-    4. CIERRE: Tras las notas, pide un comentario. Si dice que NO o al terminar el comentario, di: "Muchas gracias por su tiempo. Que tenga un buen día. Adiós." y usa 'finalizar_llamada'.
-    5. GUARDADO: Usa 'guardar_encuesta' INMEDIATAMENTE tras cada respuesta del cliente. No esperes al final.
-    6. NÚMERO 1: Di siempre "UNO", nunca digas "un".
+    1. PRIVACIDAD: NUNCA menciones nombres de salas, IDs técnicos ni bases de datos.
+    2. NO REPETIR: No repitas las notas (ej: no digas "He anotado un 8"). Pasa directo a la siguiente.
+    3. FLUJO DE PREGUNTAS (UNA A UNA):
+       - Pregunta 1: Trato comercial. Tras recibir respuesta -> LLAMA A guardar_encuesta(nota_comercial=nota).
+       - Pregunta 2: Instalador. Tras recibir respuesta -> LLAMA A guardar_encuesta(nota_instalador=nota).
+       - Pregunta 3: Rapidez. Tras recibir respuesta -> LLAMA A guardar_encuesta(nota_rapidez=nota).
+    4. CIERRE: Si no hay más comentarios o dicen que NO, di la despedida final y usa 'finalizar_llamada'.
+    5. GUARDADO CRÍTICO: Debes llamar a 'guardar_encuesta' DESPUÉS DE CADA NOTA recibida.
+    6. NÚMERO 1: Di siempre "UNO".
     """
 
     # Extraer ID de la sala
@@ -211,6 +212,44 @@ async def entrypoint(ctx: JobContext):
     customer_name = ctx.job.metadata.strip() if ctx.job.metadata else None
     if customer_name:
         greeting = f"Hola {customer_name}, le llamo de Ausarta. ¿Tiene un minuto para una encuesta rápida?"
+
+    async def cleanup():
+        print(f"🛑 [Shutdown] Iniciando limpieza para sala: {ctx.room.name}")
+        # Calcular duración aproximada si hubo intercambio
+        duration = 0
+        if agent_instance.interaction_count > 0:
+            duration = int(asyncio.get_event_loop().time() - start_time)
+        
+        if survey_id:
+            # Si el agente marcó completada explícitamente, status='completed'
+            # Si no, mandamos None para que api.py NO marque como completada (Pendiente)
+            final_status = 'completed' if agent_instance.is_completed else None
+            
+            print(f"🔍 [Cleanup] Preparando guardado. interaction_count={agent_instance.interaction_count}, scores={agent_instance.current_scores}")
+            
+            # Intentar usar la URL del Bridge detectada o 127.0.0.1
+            url = f"http://127.0.0.1:8001/guardar-encuesta"
+            payload = {
+                "id_encuesta": survey_id, 
+                "transcription": agent_instance.full_transcript,
+                "status": final_status,
+                "tokens_used": agent_instance.total_tokens,
+                "seconds_used": duration,
+                **agent_instance.current_scores
+            }
+            try:
+                # Aumentamos un poco el timeout y usamos aiohttp directamente de forma segura
+                print(f"💾 [Shutdown] Guardando {len(agent_instance.full_transcript)} chars de transcripción y notas: {agent_instance.current_scores}")
+                async with aiohttp.ClientSession() as s:
+                    async with s.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                        txt = await r.text()
+                        print(f"✅ [Shutdown] Respuesta DB: {txt}")
+            except Exception as e:
+                print(f"⚠️ [Shutdown] No se pudo guardar survey_id={survey_id}: {e}")
+        
+        print(f"👋 [Shutdown] Limpieza completada.")
+
+    ctx.add_shutdown_callback(cleanup)
 
     try:
         # VAD ajustado para ignorar ruidos cortos y no interrumpir por ruidos de fondo
@@ -272,55 +311,15 @@ async def entrypoint(ctx: JobContext):
                 tokens = getattr(resp.usage, 'total_tokens', 0)
                 agent_instance.total_tokens += tokens
                 print(f"📊 [Usage] Tokens en esta respuesta: {tokens} (Total: {agent_instance.total_tokens})")
-
+        
         print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
         
-        start_time = asyncio.get_event_loop().time()
-
         # Saludo forzado inicial
         await session.generate_reply(
             instructions=f"Saluda ahora mismo diciendo exactamente: '{greeting}'. No uses herramientas.",
             allow_interruptions=True
         )
-
-        async def cleanup():
-            print(f"🛑 [Shutdown] Iniciando limpieza para sala: {ctx.room.name}")
-            # Calcular duración aproximada si hubo intercambio
-            duration = 0
-            if agent_instance.interaction_count > 0:
-                duration = int(asyncio.get_event_loop().time() - start_time)
-            
-            if survey_id:
-                # Si el agente marcó completada explícitamente, status='completed'
-                # Si no, mandamos None para que api.py NO marque como completada (Pendiente)
-                final_status = 'completed' if agent_instance.is_completed else None
-                
-                print(f"🔍 [Cleanup] Preparando guardado. interaction_count={agent_instance.interaction_count}, scores={agent_instance.current_scores}")
-                
-                # Intentar usar la URL del Bridge detectada o 127.0.0.1
-                url = f"http://127.0.0.1:8001/guardar-encuesta"
-                payload = {
-                    "id_encuesta": survey_id, 
-                    "transcription": agent_instance.full_transcript,
-                    "status": final_status,
-                    "tokens_used": agent_instance.total_tokens,
-                    "seconds_used": duration,
-                    **agent_instance.current_scores
-                }
-                try:
-                    # Aumentamos un poco el timeout y usamos aiohttp directamente de forma segura
-                    print(f"💾 [Shutdown] Guardando {len(agent_instance.full_transcript)} chars de transcripción y notas: {agent_instance.current_scores}")
-                    async with aiohttp.ClientSession() as s:
-                        async with s.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as r:
-                            txt = await r.text()
-                            print(f"✅ [Shutdown] Respuesta DB: {txt}")
-                except Exception as e:
-                    print(f"⚠️ [Shutdown] No se pudo guardar survey_id={survey_id}: {e}")
-            
-            print(f"👋 [Shutdown] Limpieza completada.")
-
-        ctx.add_shutdown_callback(cleanup)
 
         # Eliminamos ruido de fondo para una voz más limpia
         pass

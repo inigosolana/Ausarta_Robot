@@ -132,24 +132,20 @@ def init_database():
                 """Eres un asistente de encuestas de calidad de Ausarta. Tu tono es profesional, amable y eficiente.
 
 TU MISIÓN:
-1. Preséntate como Dakota de Ausarta.
+1. Saluda cordialmente y preséntate como Dakota de Ausarta.
 2. Pregunta si tienen un momento. ESPERA RESPUESTA.
 3. Haz estas 3 preguntas UNA A UNA (espera a que respondan cada una):
-   - "Del 1 al 10, ¿trato comercial?" -> GUARDA RESPUESTA con guardar_encuesta.
-   - "Del 1 al 10, ¿instalador?" -> GUARDA RESPUESTA con guardar_encuesta.
-   - "Del 1 al 10, ¿rapidez?" -> GUARDA RESPUESTA con guardar_encuesta.
-4. Pide comentario final.
+   - "Del 1 al 10, ¿trato comercial?" -> TRAS RECIBIR NOTA, usa 'guardar_encuesta(nota_comercial=X)'.
+   - "Del 1 al 10, ¿instalador?" -> TRAS RECIBIR NOTA, usa 'guardar_encuesta(nota_instalador=X)'.
+   - "Del 1 al 10, ¿rapidez?" -> TRAS RECIBIR NOTA, usa 'guardar_encuesta(nota_rapidez=X)'.
+4. Pide comentario final. Tras recibirlo, usa 'guardar_encuesta(comentarios=X, status="completed")'.
 
-REGLAS DE ORO:
-    - NUNCA menciones IDs técnicos, números de sala (ej: encuesta_123) ni nombres de bases de datos.
-    - NO REPITAS las notas que te diga el cliente. Si te dice "un ocho", no digas "Perfecto, un ocho", di simplemente "Gracias" o pasa a la siguiente pregunta.
-    - Si el cliente cuelga pronto o dice que no puede hablar, no insistas. Simplemente guarda lo que tengas.
-    - Cuando digas el número 1, di SIEMPRE "uno".
-    - Sé directo, educado y muy breve. Una encuesta de menos de 1 minuto.
-    - Usa 'guardar_encuesta' INMEDIATAMENTE tras cada respuesta para registrar los datos. No esperes a terminar el guion.
-    - Al terminar el comentario o si dice que NO tiene ninguno, di: "Muchas gracias por su tiempo. Que tenga un buen día. Adiós." y usa 'finalizar_llamada' inmediatamente. (Asegúrate de haber llamado a guardar_encuesta con status='completed' antes).
-    - MUY IMPORTANTE: Mantén el flujo de la conversación por ti misma. Escucha al cliente y pasa a la siguiente pregunta sin esperar instrucciones externas.
-    """,
+REGLAS CRÍTICAS:
+- NUNCA digas números de sala ni IDs técnicos.
+- NO REPITAS las notas que te diga el cliente.
+- Tras guardar con status='completed', di "Gracias, que tenga un buen día. Adiós" y usa 'finalizar_llamada'.
+- Usa 'guardar_encuesta' INMEDIATAMENTE tras cada dato obtenido.
+- Di siempre "UNO" para el número 1.""",
                 'Hola, soy Dakota de Ausarta. ¿Tiene un minuto para una encuesta rápida de calidad?'
             )
         ''')
@@ -881,6 +877,34 @@ async def guardar_encuesta(datos: FinEncuesta):
             if val is not None:
                 update_fields.append("puntuacion_rapidez = ?")
                 params.append(val)
+
+        # RESCATE: Si no vienen notas pero hay transcripción, intentar extraerlas del texto
+        if datos.transcription:
+            lines = datos.transcription.split('\n')
+            # Mapeo de términos a columnas
+            mapping = {
+                "puntuacion_comercial": ["comercial", "atencion", "trato"],
+                "puntuacion_instalador": ["instalador", "tecnico", "tecnico"],
+                "puntuacion_rapidez": ["rapidez", "velocidad", "tiempo"]
+            }
+            
+            # Solo si el campo aún no está en update_fields
+            for col, keywords in mapping.items():
+                if not any(col in f for f in update_fields):
+                    # Buscar la respuesta del cliente tras una pregunta del agente que contenga la keyword
+                    for i in range(len(lines) - 1):
+                        agente_line = lines[i].lower()
+                        if "agente:" in agente_line and any(k in agente_line for k in keywords):
+                            cliente_line = lines[i+1].lower()
+                            if "cliente:" in cliente_line:
+                                # Extraer número de la línea del cliente
+                                match = re.search(r'\b(10|[1-9])\b', cliente_line)
+                                if match:
+                                    val = int(match.group())
+                                    update_fields.append(f"{col} = ?")
+                                    params.append(val)
+                                    print(f"🕵️ [Rescue] Extraído {col}={val} de la transcripción.")
+                                    break
 
         if datos.comentarios is not None and datos.comentarios != "Sin comentarios":
             update_fields.append("comentarios = ?")
