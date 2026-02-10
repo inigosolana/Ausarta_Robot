@@ -327,6 +327,7 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
                 className="w-full px-3 py-2 border rounded-lg bg-gray-50"
               >
                 <option value="groq">Groq (Llama 3)</option>
+                <option value="google">Google Gemini</option>
                 <option value="openai">OpenAI (GPT-4)</option>
               </select>
             </div>
