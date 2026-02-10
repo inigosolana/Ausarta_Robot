@@ -135,27 +135,28 @@ const ModelsView: React.FC = () => {
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Model Name</label>
-                <div className="relative">
-                  <input
-                    list="model-options"
-                    type="text"
-                    value={settings.llm_model}
-                    onChange={(e) => setSettings({ ...settings, llm_model: e.target.value })}
-                    className="w-full h-11 px-4 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                    placeholder="Select or type model name..."
-                  />
-                  <datalist id="model-options">
-                    {getModelOptions().map(opt => (
-                      <option key={opt} value={opt} />
-                    ))}
-                  </datalist>
-                </div>
-                <p className="text-xs text-gray-400 mt-2">
-                  Select a recommended model or type a custom one supported by the provider.
-                </p>
+              <label className="block text-sm font-bold text-gray-700 mb-2">Model Name</label>
+              <div className="relative">
+                <select
+                  value={settings.llm_model}
+                  onChange={(e) => setSettings({ ...settings, llm_model: e.target.value })}
+                  className="w-full h-11 px-4 pr-10 appearance-none bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
+                >
+                  {getModelOptions().map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                  <option value="custom">Custom...</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
               </div>
+
+              {/* Custom Model Input (Optional) - Could be implemented if users really need it, but dropdown is safer */}
+              {/* For now, if they want custom they can stick to the list or I'll add a conditional input later if requested. 
+                    Actually, let's keep it simple as requested: "QUE NO TENGAS QUE ESCRIBIRLO" */}
+
+              <p className="text-xs text-gray-400 mt-2">
+                Select the AI model you want to use for the conversation.
+              </p>
             </div>
           ) : (
             <div className="text-center py-12 text-gray-400">
@@ -185,7 +186,7 @@ const ModelsView: React.FC = () => {
           </button>
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 

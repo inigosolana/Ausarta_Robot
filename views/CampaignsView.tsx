@@ -100,6 +100,7 @@ export function CampaignsView() {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [manualInput, setManualInput] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
+  const [retryInterval, setRetryInterval] = useState<number>(60); // Default 60 mins
 
   const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
 
@@ -219,11 +220,12 @@ export function CampaignsView() {
           name,
           agent_id: selectedAgent,
           scheduled_time: scheduledTime ? new Date(scheduledTime).toISOString() : null,
-          status: 'pending'
+          status: 'pending',
+          retry_interval: retryInterval || 60
         },
         leads
       };
-      // ... rest of handleCreate matches original up to end of block
+
 
       const res = await fetch(`${API_URL}/api/campaigns`, {
         method: 'POST',
@@ -626,6 +628,19 @@ export function CampaignsView() {
                 onChange={(e) => setScheduledTime(e.target.value)}
               />
               <p className="text-xs text-gray-500 mt-1">Leave empty to start immediately.</p>
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Retry Interval (minutes)</label>
+              <input
+                type="number"
+                min="1"
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg"
+                value={retryInterval}
+                onChange={(e) => setRetryInterval(Number(e.target.value))}
+                placeholder="Default: 60"
+              />
+              <p className="text-xs text-gray-500 mt-1">Time to wait before retrying a failed call.</p>
             </div>
           </div>
         </div>
