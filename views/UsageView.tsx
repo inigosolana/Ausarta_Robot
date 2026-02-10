@@ -165,6 +165,20 @@ const UsageView: React.FC = () => {
                                         <AlertTriangle size={14} className="text-blue-400" />
                                         <span className="text-[10px] text-blue-600">El Tier Standard de Gemini actualiza cuotas por minuto.</span>
                                     </div>
+                                    <button
+                                        onClick={async () => {
+                                            const res = await fetch(`${API_URL}/ai/diagnose-google`);
+                                            const data = await res.json();
+                                            if (data.status === 'success') {
+                                                alert("Modelos disponibles en tu cuenta:\n\n" + data.available_models.join("\n"));
+                                            } else {
+                                                alert("Error de diagnóstico: " + data.message);
+                                            }
+                                        }}
+                                        className="mt-3 w-full py-1.5 border border-blue-200 text-[10px] text-blue-600 font-bold rounded hover:bg-blue-100 transition-colors uppercase tracking-wider"
+                                    >
+                                        🔍 Diagnosticar Modelos Disponibles
+                                    </button>
                                 </div>
                             </div>
                         )}

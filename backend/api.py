@@ -493,6 +493,31 @@ async def get_ai_limits():
 
     return results
 
+@app.get("/api/ai/diagnose-google")
+async def diagnose_google():
+    """Lista los modelos reales disponibles para esta API Key"""
+    google_key = os.getenv("GOOGLE_API_KEY")
+    if not google_key:
+        return {"error": "No hay API Key configurada"}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Consultamos la lista de modelos permitidos para esta key
+            url = f"https://generativelanguage.googleapis.com/v1beta/models?key={google_key}"
+            async with session.get(url, timeout=10) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    models = [m["name"] for m in data.get("models", []) if "generateContent" in m.get("supportedGenerationMethods", [])]
+                    return {
+                        "status": "success",
+                        "available_models": models,
+                        "raw_info": "V1Beta API"
+                    }
+                else:
+                    return {"status": "error", "message": data.get("error", {}).get("message", "Error desconocido")}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # --- SETTINGS ENDPOINTS ---
 
 @app.get("/api/settings")
