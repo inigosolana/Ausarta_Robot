@@ -250,6 +250,8 @@ async def entrypoint(ctx: JobContext):
         agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)
         agent_instance.full_transcript = ""
         agent_instance.interaction_count = 0
+        agent_instance.total_tokens = 0
+        agent_instance.total_seconds = 0
 
         @session.on("transcription_received")
         def on_transcription(transcript):
@@ -261,9 +263,20 @@ async def entrypoint(ctx: JobContext):
                     agent_instance.interaction_count += 1
                 agent_instance.full_transcript += f"{msg}\n"
 
+        # Capturar uso de tokens de los eventos de la sesión (si el plugin lo soporta)
+        @session.on("llm_response_finished")
+        def on_llm_done(resp):
+            # Intentar extraer métricas si están disponibles en la respuesta
+            if hasattr(resp, 'usage') and resp.usage:
+                tokens = getattr(resp.usage, 'total_tokens', 0)
+                agent_instance.total_tokens += tokens
+                print(f"📊 [Usage] Tokens en esta respuesta: {tokens} (Total: {agent_instance.total_tokens})")
+
         print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
         
+        start_time = asyncio.get_event_loop().time()
+
         # Saludo forzado inicial
         await session.generate_reply(
             instructions=f"Saluda ahora mismo diciendo exactamente: '{greeting}'. No uses herramientas.",
@@ -272,6 +285,11 @@ async def entrypoint(ctx: JobContext):
 
         async def cleanup():
             print(f"🛑 [Shutdown] Iniciando limpieza para sala: {ctx.room.name}")
+            # Calcular duración aproximada si hubo intercambio
+            duration = 0
+            if agent_instance.interaction_count > 0:
+                duration = int(asyncio.get_event_loop().time() - start_time)
+            
             if survey_id:
                 final_status = 'completed' if agent_instance.interaction_count > 0 else 'failed'
                 url = f"http://127.0.0.1:8001/guardar-encuesta"
@@ -279,11 +297,13 @@ async def entrypoint(ctx: JobContext):
                     "id_encuesta": survey_id, 
                     "transcription": agent_instance.full_transcript,
                     "status": final_status,
+                    "tokens_used": agent_instance.total_tokens,
+                    "seconds_used": duration,
                     **agent_instance.current_scores
                 }
                 try:
                     # Timeout reducido a 2s para evitar zombies
-                    print(f"💾 [Shutdown] Guardando datos finales (timeout 2s)...")
+                    print(f"💾 [Shutdown] Guardando datos finales (Métricas: {agent_instance.total_tokens} tokens, {duration}s)...")
                     async with aiohttp.ClientSession() as s:
                         await s.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=2))
                     print(f"✅ [Shutdown] Datos guardados.")

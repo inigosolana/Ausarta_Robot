@@ -5,6 +5,7 @@ const API_URL = import.meta.env.VITE_API_URL || window.location.origin + '/api' 
 
 const UsageView: React.FC = () => {
     const [integrations, setIntegrations] = useState<any[]>([]);
+    const [usage, setUsage] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -14,8 +15,13 @@ const UsageView: React.FC = () => {
     const loadData = async () => {
         try {
             setIsLoading(true);
-            const res = await fetch(`${API_URL}/dashboard/integrations`);
-            if (res.ok) setIntegrations(await res.json());
+            const [intRes, usageRes] = await Promise.all([
+                fetch(`${API_URL}/dashboard/integrations`),
+                fetch(`${API_URL}/dashboard/usage-stats`)
+            ]);
+
+            if (intRes.ok) setIntegrations(await intRes.json());
+            if (usageRes.ok) setUsage(await usageRes.json());
         } catch (error) {
             console.error('Error loading usage data:', error);
         } finally {
@@ -33,7 +39,7 @@ const UsageView: React.FC = () => {
                     <BarChart3 className="text-blue-600" size={32} />
                     <h2 className="text-3xl font-bold text-gray-900">Uso y APIs</h2>
                 </div>
-                <p className="text-gray-500 mt-1">Monitorización de servicios externos y consumo</p>
+                <p className="text-gray-500 mt-1">Monitorización de servicios externos y consumo real</p>
             </div>
 
             {/* API Status Section */}
@@ -69,21 +75,27 @@ const UsageView: React.FC = () => {
                 </div>
             </div>
 
-            {/* Placeholder for future usage metrics */}
+            {/* Real usage metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center opacity-70">
-                    <div className="w-16 h-16 bg-blue-50 text-blue-400 rounded-full flex items-center justify-center mb-4">
+                <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center">
+                    <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-4">
                         <BarChart3 size={32} />
                     </div>
-                    <h4 className="text-lg font-bold text-gray-800">Consumo de Tokens</h4>
-                    <p className="text-sm text-gray-500 mt-2">Gráficas de consumo detallado por modelo bajo desarrollo.</p>
+                    <div className="text-3xl font-black text-gray-900">
+                        {usage?.total_tokens?.toLocaleString() || 0}
+                    </div>
+                    <h4 className="text-lg font-bold text-gray-800">Tokens Consumidos</h4>
+                    <p className="text-sm text-gray-500 mt-1">Total acumulado de tokens LLM (Llama 3.3)</p>
                 </div>
-                <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center opacity-70">
-                    <div className="w-16 h-16 bg-purple-50 text-purple-400 rounded-full flex items-center justify-center mb-4">
+                <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center">
+                    <div className="w-16 h-16 bg-purple-50 text-purple-600 rounded-full flex items-center justify-center mb-4">
                         <Volume2 size={32} />
                     </div>
+                    <div className="text-3xl font-black text-gray-900">
+                        {usage?.total_minutes?.toLocaleString() || 0}
+                    </div>
                     <h4 className="text-lg font-bold text-gray-800">Minutos Generados</h4>
-                    <p className="text-sm text-gray-500 mt-2">Seguimiento de minutos de voz procesados próximamente.</p>
+                    <p className="text-sm text-gray-500 mt-1">Tiempo total de interacción de voz (TTS/STT)</p>
                 </div>
             </div>
         </div>

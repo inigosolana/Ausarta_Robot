@@ -50,6 +50,9 @@ def init_database():
             puntuacion_rapidez INTEGER DEFAULT NULL,
             comentarios TEXT DEFAULT NULL,
             transcription TEXT DEFAULT NULL,
+            tokens_used INTEGER DEFAULT 0,
+            seconds_used INTEGER DEFAULT 0,
+            nombre_cliente VARCHAR(100) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -201,6 +204,14 @@ REGLAS CRÍTICAS:
         cursor.execute("ALTER TABLE encuestas ADD COLUMN transcription TEXT")
     except: pass
     
+    try:
+        cursor.execute("ALTER TABLE encuestas ADD COLUMN tokens_used INTEGER DEFAULT 0")
+    except: pass
+    
+    try:
+        cursor.execute("ALTER TABLE encuestas ADD COLUMN seconds_used INTEGER DEFAULT 0")
+    except: pass
+
     # ARREGLAR MODELOS SI ESTÁN MAL (MIGRACIÓN MANUAL)
     cursor.execute("UPDATE ai_config SET llm_model = 'llama-3.3-70b-versatile' WHERE llm_model = 'llama-3.1-8b-instant'")
     cursor.execute("UPDATE ai_config SET tts_model = 'sonic-multilingual' WHERE tts_model LIKE 'sonic-3%'")
@@ -281,6 +292,8 @@ class FinEncuesta(BaseModel):
     comentarios: Optional[str] = None
     transcription: Optional[str] = None
     status: Optional[str] = None # 'completed', 'failed', etc.
+    tokens_used: Optional[int] = 0
+    seconds_used: Optional[int] = 0
 
 class ColgarLlamada(BaseModel):
     nombre_sala: str
@@ -370,6 +383,24 @@ async def get_recent_calls():
             }
         })
     return results
+
+@app.get("/api/dashboard/usage-stats")
+async def get_usage_stats():
+    """Retorna estadísticas agregadas de uso de tokens y minutos"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT SUM(tokens_used), SUM(seconds_used) FROM encuestas")
+    res = cursor.fetchone()
+    conn.close()
+    
+    total_tokens = res[0] or 0
+    total_seconds = res[1] or 0
+    
+    return {
+        "total_tokens": total_tokens,
+        "total_minutes": round(total_seconds / 60.0, 2),
+        "total_seconds": total_seconds
+    }
 
 @app.get("/api/dashboard/integrations")
 async def get_dashboard_integrations():
@@ -846,6 +877,14 @@ async def guardar_encuesta(datos: FinEncuesta):
         if datos.transcription is not None:
             update_fields.append("transcription = ?")
             params.append(datos.transcription)
+
+        if datos.tokens_used:
+            update_fields.append("tokens_used = ?")
+            params.append(datos.tokens_used)
+
+        if datos.seconds_used:
+            update_fields.append("seconds_used = ?")
+            params.append(datos.seconds_used)
 
         # Solo actualizamos el estado de 'completada' si se nos indica explícitamente un status
         # (esto sucede en el cleanup final o cuando el agente decide terminar)
