@@ -244,8 +244,7 @@ async def entrypoint(ctx: JobContext):
             llm=llm_plugin,
             tts=tts,
             vad=vad,
-            preemptive_generation=True,
-            plot_predictions=False
+            preemptive_generation=True
         )
 
         agent_instance = DefaultAgent(instructions=instructions, greeting=greeting)

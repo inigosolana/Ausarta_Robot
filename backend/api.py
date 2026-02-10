@@ -66,7 +66,8 @@ def init_database():
             agent_id INTEGER,
             status VARCHAR(20) DEFAULT 'pending',
             scheduled_time TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
@@ -77,6 +78,7 @@ def init_database():
             phone_number VARCHAR(20),
             status VARCHAR(20) DEFAULT 'pending', -- pending, called, failed, completed
             call_id INTEGER, -- ID de la encuesta asociada
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
         )
     ''')
@@ -205,6 +207,14 @@ REGLAS CRÍTICAS:
     
     try:
         cursor.execute("ALTER TABLE encuestas ADD COLUMN nombre_cliente VARCHAR(100)")
+    except: pass
+    
+    try:
+        cursor.execute("ALTER TABLE campaigns ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    except: pass
+    
+    try:
+        cursor.execute("ALTER TABLE campaign_leads ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     except: pass
     
     try:
