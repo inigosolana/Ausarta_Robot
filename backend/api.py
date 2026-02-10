@@ -513,8 +513,10 @@ async def update_settings(settings: SettingsUpdate):
     conn = get_db_connection()
     cursor = conn.cursor()
     # 1. Update app_settings (Global)
-    cursor.execute("UPDATE app_settings SET value = ? WHERE key = 'llm_provider'", (settings.llm_provider,))
-    cursor.execute("UPDATE app_settings SET value = ? WHERE key = 'llm_model'", (settings.llm_model,))
+    for key, val in [('llm_provider', settings.llm_provider), ('llm_model', settings.llm_model)]:
+        cursor.execute("UPDATE app_settings SET value = ? WHERE key = ?", (val, key))
+        if cursor.rowcount == 0:
+            cursor.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)", (key, val))
     
     # 2. Sync legacy ai_config (for compatibility)
     cursor.execute("""
@@ -522,6 +524,9 @@ async def update_settings(settings: SettingsUpdate):
         SET llm_provider=?, llm_model=?, updated_at=CURRENT_TIMESTAMP
         WHERE id = (SELECT id FROM ai_config ORDER BY id DESC LIMIT 1)
     """, (settings.llm_provider, settings.llm_model))
+    
+    if cursor.rowcount == 0:
+        cursor.execute("INSERT INTO ai_config (llm_provider, llm_model) VALUES (?, ?)", (settings.llm_provider, settings.llm_model))
     
     conn.commit()
     conn.close()

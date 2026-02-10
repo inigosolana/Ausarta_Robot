@@ -226,22 +226,13 @@ async def entrypoint(ctx: JobContext):
     ai_config, agent_config = await asyncio.get_event_loop().run_in_executor(None, get_config)
 
     
-    # Usamos llama-3.3-70b-versatile que es el que mejor funciona
-    db_model = ai_config.get('llm_model')
-    print(f"🔍 [Config] Modelo solicitado en DB: {db_model}")
-    
-    # Lista blanca básica de modelos Groq
-    groq_models = ['llama', 'mixtral', 'gemma', 'groq']
-    if db_model and not any(m in db_model.lower() for m in groq_models):
-        print(f"⚠️ [Warning] El modelo '{db_model}' no parece ser de Groq via OpenAI. Forzando 'llama-3.3-70b-versatile' para evitar errores.")
-        llm_model = 'llama-3.3-70b-versatile'
-    else:
-        llm_model = db_model or 'llama-3.3-70b-versatile'
+    # Leer modelos de la configuración (ya sincronizados)
+    llm_model = ai_config.get('llm_model') or 'llama-3.3-70b-versatile'
     tts_model = ai_config.get('tts_model') or 'sonic-multilingual'
     tts_voice = ai_config.get('tts_voice') or 'fb926b21-4d92-411a-85d0-9d06859e2171'
     stt_model = ai_config.get('stt_model') or 'nova-2'
     
-    print(f"🛠️ [Agent] Usando modelos: LLM={llm_model}, TTS={tts_model}, STT={stt_model}")
+    print(f"🛠️ [Agent] Modelos detectados en DB: LLM={llm_model}")
     
     instructions = """Tu nombre es Dakota. Le llamas de Ausarta para realizar una breve encuesta de satisfacción sobre un servicio reciente.
     
@@ -340,21 +331,29 @@ async def entrypoint(ctx: JobContext):
         
         # 1. Leer configuración dinámica
         app_settings = get_app_settings()
+        
+        # Priorizar lo que venga en app_settings (ModelsView)
         provider = app_settings.get("llm_provider", "groq")
         model_name = app_settings.get("llm_model", "llama-3.3-70b-versatile")
         
-        print(f"⚙️ [LLM Config] Provider: {provider} | Model: {model_name}")
+        # Auto-corrección de seguridad para evitar 404s cruzados
+        if provider == "google":
+            if "gemini" not in model_name.lower():
+                 print(f"⚠️ [Correction] Se pidió Google pero el modelo era '{model_name}'. Forzando 'gemini-1.5-flash'.")
+                 model_name = "gemini-1.5-flash"
+        elif provider == "groq":
+            if "gemini" in model_name.lower():
+                 print(f"⚠️ [Correction] Se pidió Groq pero el modelo era '{model_name}'. Forzando 'llama-3.3-70b-versatile'.")
+                 model_name = "llama-3.3-70b-versatile"
+
+        print(f"⚙️ [LLM Config] Final -> Provider: {provider} | Model: {model_name}")
 
         try:
-            if "gemini" in model_name.lower() or provider == 'google':
-                provider = "google"
+            if provider == "google":
                 # Google Gemini (via OpenAI compatible endpoint)
-                # Requiere GOOGLE_API_KEY
                 google_key = os.getenv("GOOGLE_API_KEY")
                 if not google_key:
-                    print("❌ [Error] Se seleccionó Google pero falta GOOGLE_API_KEY")
-                    log_system_alert("config_error", "Falta GOOGLE_API_KEY para usar Gemini.")
-                    raise ValueError("Missing GOOGLE_API_KEY")
+                    raise ValueError("Falta GOOGLE_API_KEY")
                       
                 llm_plugin = openai.LLM(
                     model=model_name,
@@ -363,13 +362,16 @@ async def entrypoint(ctx: JobContext):
                 )
             else:
                 # Default: Groq
+                if not groq_key:
+                    raise ValueError("Falta GROQ_API_KEY")
+                
                 llm_plugin = openai.LLM(
                     model=model_name, 
                     base_url="https://api.groq.com/openai/v1", 
                     api_key=groq_key
                 )
         except Exception as e:
-            print(f"❌ [Error Init] Falló al crear instancia LLM ({provider}): {e}")
+            print(f"❌ [Error LLM Init] {e}")
             raise e
         session = AgentSession(
             stt=stt,
