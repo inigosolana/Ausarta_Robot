@@ -188,16 +188,16 @@ async def entrypoint(ctx: JobContext):
     
     instructions = """Tu nombre es Dakota. Le llamas de Ausarta para realizar una breve encuesta de satisfacción sobre un servicio reciente.
     
-    REGLAS DE ORO (MANDATORIAS):
-    1. PRIVACIDAD: NUNCA menciones nombres de salas, IDs técnicos ni bases de datos.
-    2. NO REPETIR: No repitas las notas (ej: no digas "He anotado un 8"). Pasa directo a la siguiente.
-    3. FLUJO DE PREGUNTAS (UNA A UNA):
-       - Pregunta 1: Trato comercial. Tras recibir respuesta -> LLAMA A guardar_encuesta(nota_comercial=nota).
-       - Pregunta 2: Instalador. Tras recibir respuesta -> LLAMA A guardar_encuesta(nota_instalador=nota).
-       - Pregunta 3: Rapidez. Tras recibir respuesta -> LLAMA A guardar_encuesta(nota_rapidez=nota).
-    4. CIERRE: Si no hay más comentarios o dicen que NO, di la despedida final y usa 'finalizar_llamada'.
-    5. GUARDADO CRÍTICO: Debes llamar a 'guardar_encuesta' DESPUÉS DE CADA NOTA recibida.
-    6. NÚMERO 1: Di siempre "UNO".
+    REGLAS:
+    1. Pregunta uno a uno.
+    2. Al recibir UNA respuesta (ej: "un 8"), llama INMEDIATAMENTE a `guardar_encuesta` con ese dato. NO esperes.
+    3. Si el usuario dice un número suelto (ej: "cinco"), asúmelo como la nota de la pregunta actual.
+    4. NO repitas lo que has anotado. Pasa a la siguiente pregunta.
+    5. Preguntas:
+       - Comercial (0-10) -> guardar_encuesta(nota_comercial=X)
+       - Instalador (0-10) -> guardar_encuesta(nota_instalador=X)
+       - Rapidez (0-10) -> guardar_encuesta(nota_rapidez=X)
+    6. Al final, despídete y usa `finalizar_llamada`.
     """
 
     # Extraer ID de la sala
@@ -245,11 +245,11 @@ async def entrypoint(ctx: JobContext):
             duration = int(asyncio.get_event_loop().time() - start_time)
         
         if survey_id:
-            # Si el agente marcó completada explícitamente, status='completed'
-            # Si no, mandamos None para que api.py NO marque como completada (Pendiente)
-            final_status = 'completed' if agent_instance.is_completed else None
+            # Si el agente marcó completada explícitamente, o si tenemos AL MENOS UNA NOTA guardada
+            has_data = any(v is not None for v in agent_instance.current_scores.values())
+            final_status = 'completed' if (agent_instance.is_completed or has_data) else None
             
-            print(f"🔍 [Cleanup] Preparando guardado. interaction_count={agent_instance.interaction_count}, scores={agent_instance.current_scores}")
+            print(f"🔍 [Cleanup] Preparando guardado. has_data={has_data}, final_status={final_status}")
             
             # Intentar usar la URL del Bridge detectada o 127.0.0.1
             url = f"http://127.0.0.1:8001/guardar-encuesta"
@@ -276,8 +276,8 @@ async def entrypoint(ctx: JobContext):
     ctx.add_shutdown_callback(cleanup)
 
     try:
-        # VAD ajustado para ignorar ruidos cortos y no interrumpir por ruidos de fondo
-        vad = silero.VAD.load(min_speech_duration=0.35, min_silence_duration=0.8)
+        # VAD optimizado: min_speech 0.1s para captar "sí" rápido, min_silence 1.0s para no cortar frases
+        vad = silero.VAD.load(min_speech_duration=0.1, min_silence_duration=1.0)
         
         # Usar los plugins directamente (inference.STT/TTS
         stt = deepgram.STT(model=stt_model, language="es")
