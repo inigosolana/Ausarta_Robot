@@ -70,9 +70,10 @@ const ModelsView: React.FC = () => {
       ];
     } else if (settings.llm_provider === 'google') {
       return [
-        'gemini-1.5-flash',
-        'gemini-1.5-pro',
-        'gemini-1.0-pro'
+        'models/gemini-2.0-flash',
+        'models/gemini-2.0-flash-lite',
+        'models/gemini-2.5-flash',
+        'models/gemini-2.5-pro'
       ];
     }
     return []; // Custom text input fallback

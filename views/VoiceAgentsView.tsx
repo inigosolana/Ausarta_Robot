@@ -325,7 +325,7 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
                 value={aiConfig.llm_provider}
                 onChange={(e) => {
                   const newProvider = e.target.value;
-                  const defaultModel = newProvider === 'google' ? 'gemini-1.5-flash' : 'llama-3.3-70b-versatile';
+                  const defaultModel = newProvider === 'google' ? 'models/gemini-2.0-flash' : 'llama-3.3-70b-versatile';
                   setAiConfig({ ...aiConfig, llm_provider: newProvider, llm_model: defaultModel });
                 }}
                 className="w-full px-3 py-2 border rounded-lg bg-gray-50"
@@ -344,8 +344,10 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
               >
                 {aiConfig.llm_provider === 'google' ? (
                   <>
-                    <option value="gemini-1.5-flash">gemini-1.5-flash</option>
-                    <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                    <option value="models/gemini-2.0-flash">Gemini 2.0 Flash</option>
+                    <option value="models/gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+                    <option value="models/gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="models/gemini-2.5-pro">Gemini 2.5 Pro</option>
                   </>
                 ) : aiConfig.llm_provider === 'groq' ? (
                   <>
