@@ -910,6 +910,27 @@ async def get_results():
         results.append(d)
     return results
 
+@app.post("/api/calls/cleanup")
+async def cleanup_active_rooms():
+    """Borra todas las salas activas de LiveKit para desbloquear el sistema"""
+    lkapi = api.LiveKitAPI(
+        os.getenv("LIVEKIT_URL"),
+        os.getenv("LIVEKIT_API_KEY"),
+        os.getenv("LIVEKIT_API_SECRET"),
+    )
+    try:
+        rooms_res = await lkapi.room.list_rooms(api.ListRoomsRequest())
+        count = 0
+        for r in rooms_res.rooms:
+            if "encuesta_" in r.name:
+                await lkapi.room.delete_room(api.DeleteRoomRequest(room=r.name))
+                count += 1
+        return {"status": "success", "cleaned_count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await lkapi.aclose()
+
 @app.post("/api/calls/outbound")
 async def make_outbound_call(call_request: OutboundCallRequest):
     """
