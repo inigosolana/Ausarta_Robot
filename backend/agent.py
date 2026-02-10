@@ -74,6 +74,7 @@ class DefaultAgent(Agent):
         self.server_url = os.getenv("BRIDGE_SERVER_URL", "http://127.0.0.1:8001")
         self.greeting = greeting
         self.current_scores = {} # Cache de seguridad
+        self.is_completed = False # Flag de encuesta terminada
         
         super().__init__(instructions=instructions)
 
@@ -89,12 +90,15 @@ class DefaultAgent(Agent):
         nota_comercial: Optional[str | int] = None, 
         nota_instalador: Optional[str | int] = None, 
         nota_rapidez: Optional[str | int] = None, 
-        comentarios: Optional[str] = None
+        comentarios: Optional[str] = None,
+        status: Optional[str] = None
     ) -> str | None:
         """
-        Guarda los datos de la encuesta. LLAMAR SIEMPRE que se obtenga una nota o comentario.
+        Guarda los datos de la encuesta. 
+        LLAMAR SIEMPRE que se obtenga una nota o comentario.
+        Si el cliente dice que NO quiere dejar comentario, llamar con status='completed'.
         """
-        print(f"🛠️ [Tool] Ejecutando guardar_encuesta: ID={id_encuesta}")
+        print(f"🛠️ [Tool] Ejecutando guardar_encuesta: ID={id_encuesta}, status={status}")
         context.disallow_interruptions()
         url = f"{self.server_url}/guardar-encuesta"
         
@@ -103,11 +107,12 @@ class DefaultAgent(Agent):
         if hasattr(self, 'full_transcript'):
             transcript = self.full_transcript
 
-        # Guardar en local por si cortan la llamada
+        # Guardar en local para el cleanup
         if nota_comercial: self.current_scores["nota_comercial"] = nota_comercial
         if nota_instalador: self.current_scores["nota_instalador"] = nota_instalador
         if nota_rapidez: self.current_scores["nota_rapidez"] = nota_rapidez
         if comentarios: self.current_scores["comentarios"] = comentarios
+        if status == 'completed': self.is_completed = True
 
         payload = {
             "id_encuesta": id_encuesta,
@@ -115,7 +120,8 @@ class DefaultAgent(Agent):
             "nota_instalador": nota_instalador,
             "nota_rapidez": nota_rapidez,
             "comentarios": comentarios,
-            "transcription": transcript
+            "transcription": transcript,
+            "status": status
         }
         try:
             session = utils.http_context.http_session()
@@ -291,7 +297,10 @@ async def entrypoint(ctx: JobContext):
                 duration = int(asyncio.get_event_loop().time() - start_time)
             
             if survey_id:
-                final_status = 'completed' if agent_instance.interaction_count > 0 else 'failed'
+                # Si el agente marcó completada explícitamente, status='completed'
+                # Si no, mandamos None para que api.py NO marque como completada (Pendiente)
+                final_status = 'completed' if agent_instance.is_completed else None
+                
                 url = f"http://127.0.0.1:8001/guardar-encuesta"
                 payload = {
                     "id_encuesta": survey_id, 
