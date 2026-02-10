@@ -67,6 +67,9 @@ def get_config():
         logger.error(f"❌ [Agent] Error leyendo config DB: {e}")
         print(f"❌ [Agent] Error crítico DB: {e}")
         return {}, {}
+    finally:
+        if 'conn' in locals(): conn.close()
+
 
 class DefaultAgent(Agent):
     def __init__(self, instructions: str, greeting: str) -> None:
@@ -167,7 +170,10 @@ async def entrypoint(ctx: JobContext):
     pid = os.getpid()
     start_time = asyncio.get_event_loop().time()
     print(f"🔍 [DEBUG] Entrypoint llamado para sala: {ctx.room.name} (PID: {pid})")
-    ai_config, agent_config = get_config()
+    
+    # Hacer la lectura de DB no bloqueante
+    ai_config, agent_config = await asyncio.get_event_loop().run_in_executor(None, get_config)
+
     
     # Usamos llama-3.3-70b-versatile que es el que mejor funciona
     db_model = ai_config.get('llm_model')
@@ -190,9 +196,9 @@ async def entrypoint(ctx: JobContext):
     
     REGLAS:
     1. Pregunta uno a uno.
-    2. Al recibir UNA respuesta (ej: "un 8"), llama INMEDIATAMENTE a `guardar_encuesta` con ese dato. NO esperes.
-    3. Si el usuario dice un número suelto (ej: "cinco"), asúmelo como la nota de la pregunta actual.
-    4. NO repitas lo que has anotado. Pasa a la siguiente pregunta.
+    2. Al recibir UNA respuesta, llama a `guardar_encuesta` SOLO con ese dato.
+    3. NO inventes ni rellenes las otras notas si el usuario no las ha dicho aún.
+    4. Si el usuario dice un número suelto, asúmelo para la pregunta actual.
     5. Preguntas:
        - Comercial (0-10) -> guardar_encuesta(nota_comercial=X)
        - Instalador (0-10) -> guardar_encuesta(nota_instalador=X)
@@ -324,7 +330,8 @@ async def entrypoint(ctx: JobContext):
             else:
                 # Finalizado
                 msg = f"{role}: {transcript.text}"
-                print(f"🎤 {msg}")
+                # print(f"🎤 {msg}") # Reducir logs para rendimiento
+
                 
                 if role == "Cliente":
                     agent_instance.interaction_count += 1
