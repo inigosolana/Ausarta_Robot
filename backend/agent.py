@@ -70,6 +70,18 @@ def get_config():
     finally:
         if 'conn' in locals(): conn.close()
 
+def log_system_alert(type, message):
+    """Registra una alerta en la BD para que el frontend la muestre"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO system_alerts (type, message) VALUES (?, ?)", (type, message))
+        conn.commit()
+        conn.close()
+        print(f"🚨 [Alert System] Nueva alerta registrada: {type} - {message}")
+    except Exception as e:
+        print(f"❌ [Alert System] Fallo al registrar alerta: {e}")
+
 
 class DefaultAgent(Agent):
     def __init__(self, instructions: str, greeting: str) -> None:
@@ -361,8 +373,13 @@ async def entrypoint(ctx: JobContext):
         
     except Exception as e:
         import traceback
-        print(f"❌ [Error Crítico] Dakota: {e}")
+        error_msg = str(e)
+        print(f"❌ [Error Crítico] Dakota: {error_msg}")
         traceback.print_exc()
+        
+        # Detectar Rate Limits
+        if "429" in error_msg or "Rate limit" in error_msg:
+            log_system_alert("api_limit", f"Límite de API alcanzado (Groq/Llama). Cambie la API Key o espere. Error: {error_msg[:100]}...")
 
 if __name__ == "__main__":
     cli.run_app(server)

@@ -161,6 +161,17 @@ REGLAS CRÍTICAS:
         )
     ''')
 
+    # Tabla de alertas del sistema (ej: API Limits)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS system_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type VARCHAR(50) NOT NULL, -- 'api_limit', 'error', 'info'
+            message TEXT NOT NULL,
+            is_active TINYINT(1) DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # Insertar Template por defecto (Ausarta) si no existe
     cursor.execute('SELECT COUNT(*) FROM prompt_templates')
     if cursor.fetchone()[0] == 0:
@@ -423,6 +434,26 @@ async def get_dashboard_integrations():
         {"name": "STT Provider", "provider": "Deepgram", "active": bool(os.getenv("DEEPGRAM_API_KEY")), "model": "nova-2"},
         {"name": "LiveKit", "provider": "Cloud", "active": bool(os.getenv("LIVEKIT_API_KEY")), "url": os.getenv("LIVEKIT_URL")}
     ]
+
+@app.get("/api/alerts")
+async def get_system_alerts():
+    """Devuelve las alertas activas del sistema"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM system_alerts WHERE is_active = 1 ORDER BY created_at DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+@app.post("/api/alerts/{alert_id}/resolve")
+async def resolve_alert(alert_id: int):
+    """Marca una alerta como resuelta"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE system_alerts SET is_active = 0 WHERE id = ?", (alert_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "success"}
 
 # --- AGENT CONFIG ENDPOINTS ---
 
@@ -944,29 +975,37 @@ async def guardar_encuesta(datos: FinEncuesta):
             params.append(datos.seconds_used)
 
         if datos.status is not None:
-            final_complete = 0 if datos.status == 'failed' else 1
+            # Si status es 'completed', marcamos la encuesta como completada en BD
+            final_complete = 1 if datos.status == 'completed' else 0
+            
+            # Mapeamos status del agente a status del lead
+            lead_status = 'completed' if datos.status == 'completed' else 'failed'
+            if datos.status == 'failed': lead_status = 'failed'
+
             update_fields.append("completada = ?")
             params.append(final_complete)
             
-            lead_status = 'called' if final_complete == 1 else 'failed'
+            # Actualizar lead asociado a este call_id
             cursor.execute("UPDATE campaign_leads SET status = ? WHERE call_id = ?", (lead_status, id_final))
             
+            # Actualizar también por teléfono si quedó pending (fallback)
             cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))
             phone_res = cursor.fetchone()
             if phone_res:
-                cursor.execute("UPDATE campaign_leads SET status = ? WHERE phone_number = ? AND status = 'pending'", (lead_status, phone_res[0]))
+                cursor.execute("UPDATE campaign_leads SET status = ? WHERE phone_number = ? AND status IN ('pending', 'called')", (lead_status, phone_res[0]))
         elif len(update_fields) > 1:
             notas_rescatadas = [f for f in update_fields if 'puntuacion' in f]
             # Si hay AL MENOS UNA nota rescatada o comentario, damos la ficha por válida (completada)
             if len(notas_rescatadas) >= 1 or "comentarios" in str(update_fields):
                 print(f"✅ [Auto-Close] Marcando ficha {id_final} como completada por rescate exitoso.")
                 update_fields.append("completada = 1")
-                cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE call_id = ?", (id_final,))
+                # Al rescatar datos, la damos por completada
+                cursor.execute("UPDATE campaign_leads SET status = 'completed' WHERE call_id = ?", (id_final,))
                 
                 cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))
                 phone_res = cursor.fetchone()
                 if phone_res:
-                    cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE phone_number = ? AND status = 'pending'", (phone_res[0],))
+                    cursor.execute("UPDATE campaign_leads SET status = 'completed' WHERE phone_number = ? AND status IN ('pending', 'called')", (phone_res[0],))
 
         update_fields.append("updated_at = CURRENT_TIMESTAMP")
 

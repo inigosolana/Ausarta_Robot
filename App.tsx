@@ -60,6 +60,34 @@ const App: React.FC = () => {
     }
   };
 
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
+
+  React.useEffect(() => {
+    const fetchAlerts = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/alerts`);
+        if (res.ok) {
+          const data = await res.json();
+          setAlerts(data);
+        }
+      } catch (e) {
+        // Silent error
+      }
+    };
+
+    fetchAlerts();
+    const interval = setInterval(fetchAlerts, 10000); // Check every 10s
+    return () => clearInterval(interval);
+  }, []);
+
+  const resolveAlert = async (id: number) => {
+    try {
+      await fetch(`${API_URL}/api/alerts/${id}/resolve`, { method: 'POST' });
+      setAlerts(prev => prev.filter(a => a.id !== id));
+    } catch (e) { }
+  };
+
   return (
     <div className="flex h-screen w-full bg-[#fcfcfc] overflow-hidden">
       {/* Sidebar */}
@@ -162,6 +190,39 @@ const App: React.FC = () => {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-8 relative">
         <div className="max-w-6xl mx-auto">
+          {alerts.length > 0 && (
+            <div className="mb-6 space-y-2">
+              {alerts.map((alert: any) => (
+                <div key={alert.id} className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center justify-between shadow-sm animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-red-100 p-2 rounded-full">
+                      <Zap className="w-5 h-5 text-red-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm uppercase">{alert.type === 'api_limit' ? '⚠️ API Limit Reached' : 'System Alert'}</h3>
+                      <p className="text-sm">{alert.message}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {alert.type === 'api_limit' && (
+                      <button
+                        onClick={() => setCurrentView('voice-agents')}
+                        className="px-3 py-1 bg-white border border-red-200 rounded text-xs font-semibold hover:bg-red-50"
+                      >
+                        Manage API Keys
+                      </button>
+                    )}
+                    <button
+                      onClick={() => resolveAlert(alert.id)}
+                      className="px-3 py-1 bg-red-100 rounded text-xs hover:bg-red-200"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           {renderContent()}
         </div>
       </main>
