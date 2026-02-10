@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Globe, Cpu, Mic, Volume2, AlertTriangle, XCircle } from 'lucide-react';
+import { BarChart3, Globe, Cpu, Mic, Volume2, AlertTriangle, XCircle, Zap } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || window.location.origin + '/api' || 'http://localhost:8002/api';
 
@@ -7,6 +7,7 @@ const UsageView: React.FC = () => {
     const [integrations, setIntegrations] = useState<any[]>([]);
     const [usage, setUsage] = useState<any>(null);
     const [alerts, setAlerts] = useState<any[]>([]);
+    const [liveLimits, setLiveLimits] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -16,13 +17,15 @@ const UsageView: React.FC = () => {
     const loadData = async () => {
         try {
             setIsLoading(true);
-            const [intRes, usageRes] = await Promise.all([
+            const [intRes, usageRes, limitsRes] = await Promise.all([
                 fetch(`${API_URL}/dashboard/integrations`),
-                fetch(`${API_URL}/dashboard/usage-stats`)
+                fetch(`${API_URL}/dashboard/usage-stats`),
+                fetch(`${API_URL}/ai/limits`)
             ]);
 
             if (intRes.ok) setIntegrations(await intRes.json());
             if (usageRes.ok) setUsage(await usageRes.json());
+            if (limitsRes.ok) setLiveLimits(await limitsRes.json());
 
             // Fetch alerts specifically for this view too (or pass from props, but independent fetch is fine)
             const alertsRes = await fetch(`${API_URL}/alerts`);
@@ -104,6 +107,70 @@ const UsageView: React.FC = () => {
                     <p className="text-sm text-gray-500 mt-1">Tiempo total de interacción de voz (TTS/STT)</p>
                 </div>
             </div>
+
+            {/* Live Quota Status */}
+            {liveLimits && (
+                <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                    <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <Zap size={20} className="text-yellow-500" />
+                        Capacidades y Límites en Tiempo Real
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {liveLimits.groq && liveLimits.groq.active && (
+                            <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <img src="https://groq.com/favicon.ico" className="w-5 h-5 rounded" />
+                                        <span className="font-bold text-gray-900">Groq Cloud</span>
+                                    </div>
+                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase">Live</span>
+                                </div>
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs text-gray-500">Tokens Restantes:</span>
+                                        <span className="text-sm font-mono font-bold text-blue-600">
+                                            {Number(liveLimits.groq.tokens_remaining).toLocaleString()} / {Number(liveLimits.groq.tokens_limit).toLocaleString()}
+                                        </span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                                        <div
+                                            className="bg-blue-600 h-1.5 transition-all duration-1000"
+                                            style={{ width: `${(Number(liveLimits.groq.tokens_remaining) / Number(liveLimits.groq.tokens_limit)) * 100}%` }}
+                                        ></div>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs text-gray-500">Peticiones Restantes:</span>
+                                        <span className="text-sm font-mono font-bold text-gray-700">{liveLimits.groq.requests_remaining}</span>
+                                    </div>
+                                    <div className="text-[10px] text-gray-400 mt-2 italic text-right">
+                                        Reset en: {liveLimits.groq.reset_tokens}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {liveLimits.google && liveLimits.google.active && (
+                            <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center text-[10px] text-white font-bold">G</span>
+                                        <span className="font-bold text-gray-900">Google Gemini</span>
+                                    </div>
+                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase">Live</span>
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="text-sm text-gray-700 font-medium">{liveLimits.google.info}</div>
+                                    <div className="text-xs text-gray-500">Modelo: {liveLimits.google.model}</div>
+                                    <div className="mt-4 p-2 bg-blue-50 rounded border border-blue-100 flex items-center gap-2">
+                                        <AlertTriangle size={14} className="text-blue-400" />
+                                        <span className="text-[10px] text-blue-600">El Tier Standard de Gemini actualiza cuotas por minuto.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Provider Dashboards Link (For Remaining Quota) */}
             <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 shadow-sm">

@@ -7,6 +7,7 @@ import os
 import re
 import asyncio
 from datetime import datetime
+import aiohttp
 from typing import Optional, Union, List
 from dotenv import load_dotenv
 from livekit import api
@@ -451,6 +452,46 @@ async def get_dashboard_integrations():
         {"name": "LiveKit", "provider": "Cloud", "active": bool(os.getenv("LIVEKIT_API_KEY")), "url": os.getenv("LIVEKIT_URL"), "env_var": "LIVEKIT_API_KEY"},
         {"name": "Google Gemini", "provider": "Google", "active": bool(os.getenv("GOOGLE_API_KEY")), "model": "gemini-1.5-flash", "env_var": "GOOGLE_API_KEY"}
     ]
+
+@app.get("/api/ai/limits")
+async def get_ai_limits():
+    """Consulta en tiempo real los límites de los proveedores configurados"""
+    results = {}
+    
+    # 1. Groq
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Una petición simple a modelos nos da los headers de rate limit
+                async with session.get(
+                    "https://api.groq.com/openai/v1/models", 
+                    headers={"Authorization": f"Bearer {groq_key}"},
+                    timeout=5
+                ) as resp:
+                    if resp.status == 200:
+                        results["groq"] = {
+                            "active": True,
+                            "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
+                            "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
+                            "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
+                            "reset_tokens": resp.headers.get("x-ratelimit-reset-tokens"),
+                        }
+                    else:
+                        results["groq"] = {"active": False, "error": f"HTTP {resp.status}"}
+        except Exception as e:
+            results["groq"] = {"active": False, "error": str(e)}
+
+    # 2. Google Gemini
+    google_key = os.getenv("GOOGLE_API_KEY")
+    if google_key:
+        results["google"] = {
+            "active": True,
+            "info": "Consumo gestionado en Google Cloud Console",
+            "model": "gemini-1.5-flash (Standard Tier)"
+        }
+
+    return results
 
 # --- SETTINGS ENDPOINTS ---
 
