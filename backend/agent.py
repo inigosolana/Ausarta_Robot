@@ -352,10 +352,10 @@ async def entrypoint(ctx: JobContext):
                 # Requiere GOOGLE_API_KEY
                 google_key = os.getenv("GOOGLE_API_KEY")
                 if not google_key:
-                     print("❌ [Error] Se seleccionó Google pero falta GOOGLE_API_KEY")
-                     log_system_alert("config_error", "Falta GOOGLE_API_KEY para usar Gemini.")
-                     raise ValueError("Missing GOOGLE_API_KEY")
-                     
+                    print("❌ [Error] Se seleccionó Google pero falta GOOGLE_API_KEY")
+                    log_system_alert("config_error", "Falta GOOGLE_API_KEY para usar Gemini.")
+                    raise ValueError("Missing GOOGLE_API_KEY")
+                      
                 llm_plugin = openai.LLM(
                     model=model_name,
                     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
