@@ -161,7 +161,16 @@ async def entrypoint(ctx: JobContext):
     ai_config, agent_config = get_config()
     
     # Usamos llama-3.1-8b-instant para evitar el Rate Limit de Groq (es muy rápido y tiene más cupo)
-    llm_model = ai_config.get('llm_model') or 'llama-3.1-8b-instant'
+    db_model = ai_config.get('llm_model')
+    print(f"🔍 [Config] Modelo solicitado en DB: {db_model}")
+    
+    # Lista blanca básica de modelos Groq
+    groq_models = ['llama', 'mixtral', 'gemma', 'groq']
+    if db_model and not any(m in db_model.lower() for m in groq_models):
+        print(f"⚠️ [Warning] El modelo '{db_model}' no parece ser de Groq via OpenAI. Forzando 'llama-3.1-8b-instant' para evitar errores.")
+        llm_model = 'llama-3.1-8b-instant'
+    else:
+        llm_model = db_model or 'llama-3.1-8b-instant'
     tts_model = ai_config.get('tts_model') or 'sonic-multilingual'
     tts_voice = ai_config.get('tts_voice') or '6511153f-72f9-4314-a204-8d8d8afd646a'
     stt_model = ai_config.get('stt_model') or 'nova-2'
@@ -210,9 +219,28 @@ async def entrypoint(ctx: JobContext):
         stt = deepgram.STT(model=stt_model, language="es")
         tts = cartesia.TTS(model=tts_model, voice=tts_voice)
         
+        # Validar API Key
+        groq_key = os.getenv("GROQ_API_KEY")
+        if not groq_key:
+             print("❌ [Error FATAL] NO SE ENCONTRÓ GROQ_API_KEY EN VARIABLES DE ENTORNO. El agente fallará.")
+        else:
+             print(f"🔑 [Security] GROQ_API_KEY encontrada (termina en ...{groq_key[-4:] if len(groq_key)>4 else '****'})")
+
+        print(f"🤖 [Init] Configurando LLM con modelo: {llm_model}")
+
+        try:
+            llm_plugin = openai.LLM(
+                model=llm_model, 
+                base_url="https://api.groq.com/openai/v1", 
+                api_key=groq_key
+            )
+        except Exception as e:
+            print(f"❌ [Error Init] Falló al crear instancia LLM: {e}")
+            raise e
+
         session = AgentSession(
             stt=stt,
-            llm=openai.LLM(model=llm_model, base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY")),
+            llm=llm_plugin,
             tts=tts,
             vad=vad,
             preemptive_generation=True,
@@ -264,7 +292,9 @@ async def entrypoint(ctx: JobContext):
         await background_audio.start(room=ctx.room, agent_session=session)
         
     except Exception as e:
+        import traceback
         print(f"❌ [Error Crítico] Dakota: {e}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     cli.run_app(server)
