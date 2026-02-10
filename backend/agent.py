@@ -187,23 +187,16 @@ async def entrypoint(ctx: JobContext):
     
     instructions = """Tu nombre es Dakota. Le llamas de Ausarta para realizar una breve encuesta de satisfacción sobre un servicio reciente.
     
-    MISION:
-    1. Saluda cordialmente y pregunta si dispone de un minuto.
-    2. Si acepta, haz estas 3 preguntas UNA A UNA:
-       - Califique del 1 al 10 el trato comercial recibido.
-       - Califique del 1 al 10 al técnico instalador.
-       - Califique del 1 al 10 la rapidez del servicio.
-    3. Al finalizar las 3 notas, pregunta si desea dejar algún comentario adicional.
-    4. Usa la herramienta 'guardar_encuesta' tras cada respuesta para registrar los datos.
-    
-    REGLAS DE ORO:
-    - NUNCA menciones IDs técnicos, números de encuesta ni nombres de bases de datos.
-    - Si el cliente cuelga pronto o dice que no puede hablar, no insistas. Simplemente guarda lo que tengas.
-    - Cuando digas el número 1, di SIEMPRE "uno".
-    - Sé directo, educado y muy breve. Una encuesta de menos de 1 minuto.
-    - Usa 'guardar_encuesta' INMEDIATAMENTE tras cada respuesta para registrar los datos. No esperes a terminar el guion.
-    - Una vez recogido el comentario (o si dice que no tiene ninguno), di: "Muchas gracias por su tiempo. Que tenga un buen día. Adiós." y usa 'finalizar_llamada' inmediatamente.
-    - MUY IMPORTANTE: Mantén el flujo de la conversación por ti misma. Escucha al cliente y pasa a la siguiente pregunta sin esperar instrucciones externas.
+    REGLAS DE ORO (MANDATORIAS):
+    1. PRIVACIDAD: NUNCA menciones nombres de salas (ej: 'encuesta_123'), IDs técnicos ni bases de datos.
+    2. NO REPETIR: No repitas las notas que te diga el cliente. Si dice "un 8", no digas "He anotado un 8", pasa directamente a la siguiente o di simplemente "Gracias".
+    3. FLUJO: Haz las preguntas UNA A UNA. No esperes.
+       - Pregunta 1: Trato comercial.
+       - Pregunta 2: Instalador.
+       - Pregunta 3: Rapidez.
+    4. CIERRE: Tras las notas, pide un comentario. Si dice que NO o al terminar el comentario, di: "Muchas gracias por su tiempo. Que tenga un buen día. Adiós." y usa 'finalizar_llamada'.
+    5. GUARDADO: Usa 'guardar_encuesta' INMEDIATAMENTE tras cada respuesta del cliente. No esperes al final.
+    6. NÚMERO 1: Di siempre "UNO", nunca digas "un".
     """
 
     # Extraer ID de la sala
@@ -303,6 +296,7 @@ async def entrypoint(ctx: JobContext):
                 # Si no, mandamos None para que api.py NO marque como completada (Pendiente)
                 final_status = 'completed' if agent_instance.is_completed else None
                 
+                # Intentar usar la URL del Bridge detectada o 127.0.0.1
                 url = f"http://127.0.0.1:8001/guardar-encuesta"
                 payload = {
                     "id_encuesta": survey_id, 
@@ -313,11 +307,12 @@ async def entrypoint(ctx: JobContext):
                     **agent_instance.current_scores
                 }
                 try:
-                    # Timeout reducido a 2s para evitar zombies
-                    print(f"💾 [Shutdown] Guardando datos finales (Métricas: {agent_instance.total_tokens} tokens, {duration}s)...")
+                    # Aumentamos un poco el timeout y usamos aiohttp directamente de forma segura
+                    print(f"💾 [Shutdown] Guardando {len(agent_instance.full_transcript)} chars de transcripción y notas: {agent_instance.current_scores}")
                     async with aiohttp.ClientSession() as s:
-                        await s.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=2))
-                    print(f"✅ [Shutdown] Datos guardados.")
+                        async with s.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                            txt = await r.text()
+                            print(f"✅ [Shutdown] Respuesta DB: {txt}")
                 except Exception as e:
                     print(f"⚠️ [Shutdown] No se pudo guardar survey_id={survey_id}: {e}")
             
