@@ -38,7 +38,6 @@ interface Call {
 const DashboardView: React.FC = () => {
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [recentCalls, setRecentCalls] = useState<Call[]>([]);
-    const [integrations, setIntegrations] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -48,15 +47,13 @@ const DashboardView: React.FC = () => {
     const loadData = async () => {
         try {
             setIsLoading(true);
-            const [statsRes, callsRes, intRes] = await Promise.all([
+            const [statsRes, callsRes] = await Promise.all([
                 fetch(`${API_URL}/dashboard/stats`),
-                fetch(`${API_URL}/dashboard/recent-calls`),
-                fetch(`${API_URL}/dashboard/integrations`)
+                fetch(`${API_URL}/dashboard/recent-calls`)
             ]);
 
             if (statsRes.ok) setStats(await statsRes.json());
             if (callsRes.ok) setRecentCalls(await callsRes.json());
-            if (intRes.ok) setIntegrations(await intRes.json());
 
         } catch (error) {
             console.error('Error loading dashboard data:', error);
@@ -164,25 +161,6 @@ const DashboardView: React.FC = () => {
                     </div>
                 </div>
 
-            </div>
-
-            {/* API Integrations usage section requested by user */}
-            <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-                <h3 className="text-lg font-bold text-gray-800 mb-4">APIs en Uso (Status)</h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    {integrations.map((int, i) => (
-                        <div key={i} className="p-4 rounded-lg border border-gray-50 bg-gray-50/50">
-                            <div className="flex justify-between items-start mb-2">
-                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">{int.name}</span>
-                                <span className={`w-2 h-2 rounded-full ${int.active ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-                            </div>
-                            <div className="font-bold text-gray-900">{int.provider}</div>
-                            <div className="text-xs text-gray-500 mt-1 truncate">
-                                {int.model || int.url || 'Configurado'}
-                            </div>
-                        </div>
-                    ))}
-                </div>
             </div>
 
             {/* Recent Activity */}

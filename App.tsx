@@ -24,6 +24,7 @@ import VoiceAgentsView from './views/VoiceAgentsView';
 import LiveCallView from './views/LiveCallView';
 import DashboardView from './views/DashboardView';
 import ResultsView from './views/ResultsView';
+import UsageView from './views/UsageView';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState | 'results'>('overview');
@@ -42,6 +43,8 @@ const App: React.FC = () => {
         return <DashboardView />;
       case 'results':
         return <ResultsView />;
+      case 'usage':
+        return <UsageView />;
       default:
         return (
           <div className="flex items-center justify-center h-full text-gray-400">
