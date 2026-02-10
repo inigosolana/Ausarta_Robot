@@ -38,6 +38,7 @@ interface Call {
 const DashboardView: React.FC = () => {
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [recentCalls, setRecentCalls] = useState<Call[]>([]);
+    const [integrations, setIntegrations] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -47,13 +48,15 @@ const DashboardView: React.FC = () => {
     const loadData = async () => {
         try {
             setIsLoading(true);
-            const [statsRes, callsRes] = await Promise.all([
+            const [statsRes, callsRes, intRes] = await Promise.all([
                 fetch(`${API_URL}/dashboard/stats`),
-                fetch(`${API_URL}/dashboard/recent-calls`)
+                fetch(`${API_URL}/dashboard/recent-calls`),
+                fetch(`${API_URL}/dashboard/integrations`)
             ]);
 
             if (statsRes.ok) setStats(await statsRes.json());
             if (callsRes.ok) setRecentCalls(await callsRes.json());
+            if (intRes.ok) setIntegrations(await intRes.json());
 
         } catch (error) {
             console.error('Error loading dashboard data:', error);
@@ -161,46 +164,66 @@ const DashboardView: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Recent Activity */}
-                <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">Últimas Llamadas</h3>
-                    <div className="overflow-y-auto max-h-[200px]">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teléfono</th>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
-                                    <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">C / I / R</th>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+            </div>
+
+            {/* API Integrations usage section requested by user */}
+            <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">APIs en Uso (Status)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    {integrations.map((int, i) => (
+                        <div key={i} className="p-4 rounded-lg border border-gray-50 bg-gray-50/50">
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">{int.name}</span>
+                                <span className={`w-2 h-2 rounded-full ${int.active ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+                            </div>
+                            <div className="font-bold text-gray-900">{int.provider}</div>
+                            <div className="text-xs text-gray-500 mt-1 truncate">
+                                {int.model || int.url || 'Configurado'}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Recent Activity */}
+            <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Últimas Llamadas</h3>
+                <div className="overflow-y-auto max-h-[200px]">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teléfono</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">C / I / R</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {recentCalls.map((call) => (
+                                <tr key={call.id}>
+                                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 flex items-center gap-2">
+                                        <User size={14} className="text-gray-400" />
+                                        {call.phone}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">
+                                        {new Date(call.date).toLocaleString()}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-sm text-center font-mono font-bold text-gray-700">
+                                        {call.scores?.comercial ?? '-'} / {call.scores?.instalador ?? '-'} / {call.scores?.rapidez ?? '-'}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-sm">
+                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${call.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                                            }`}>
+                                            {call.status === 'completed' ? 'Completada' : 'Pendiente'}
+                                        </span>
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {recentCalls.map((call) => (
-                                    <tr key={call.id}>
-                                        <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 flex items-center gap-2">
-                                            <User size={14} className="text-gray-400" />
-                                            {call.phone}
-                                        </td>
-                                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">
-                                            {new Date(call.date).toLocaleString()}
-                                        </td>
-                                        <td className="px-3 py-2 whitespace-nowrap text-sm text-center font-mono font-bold text-gray-700">
-                                            {call.scores?.comercial ?? '-'} / {call.scores?.instalador ?? '-'} / {call.scores?.rapidez ?? '-'}
-                                        </td>
-                                        <td className="px-3 py-2 whitespace-nowrap text-sm">
-                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${call.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                                                }`}>
-                                                {call.status === 'completed' ? 'Completada' : 'Pendiente'}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        {recentCalls.length === 0 && (
-                            <p className="text-center text-gray-400 mt-4 text-sm">No hay llamadas recientes</p>
-                        )}
-                    </div>
+                            ))}
+                        </tbody>
+                    </table>
+                    {recentCalls.length === 0 && (
+                        <p className="text-center text-gray-400 mt-4 text-sm">No hay llamadas recientes</p>
+                    )}
                 </div>
             </div>
         </div>

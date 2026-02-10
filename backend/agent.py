@@ -161,17 +161,17 @@ async def entrypoint(ctx: JobContext):
     print(f"🔍 [DEBUG] Entrypoint llamado para sala: {ctx.room.name} (PID: {pid})")
     ai_config, agent_config = get_config()
     
-    # Usamos llama-3.1-8b-instant para evitar el Rate Limit de Groq (es muy rápido y tiene más cupo)
+    # Usamos llama-3.3-70b-versatile que es el que mejor funciona
     db_model = ai_config.get('llm_model')
     print(f"🔍 [Config] Modelo solicitado en DB: {db_model}")
     
     # Lista blanca básica de modelos Groq
     groq_models = ['llama', 'mixtral', 'gemma', 'groq']
     if db_model and not any(m in db_model.lower() for m in groq_models):
-        print(f"⚠️ [Warning] El modelo '{db_model}' no parece ser de Groq via OpenAI. Forzando 'llama-3.1-8b-instant' para evitar errores.")
-        llm_model = 'llama-3.1-8b-instant'
+        print(f"⚠️ [Warning] El modelo '{db_model}' no parece ser de Groq via OpenAI. Forzando 'llama-3.3-70b-versatile' para evitar errores.")
+        llm_model = 'llama-3.3-70b-versatile'
     else:
-        llm_model = db_model or 'llama-3.1-8b-instant'
+        llm_model = db_model or 'llama-3.3-70b-versatile'
     tts_model = ai_config.get('tts_model') or 'sonic-multilingual'
     tts_voice = ai_config.get('tts_voice') or '6511153f-72f9-4314-a204-8d8d8afd646a'
     stt_model = ai_config.get('stt_model') or 'nova-2'
