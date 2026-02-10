@@ -39,10 +39,11 @@ class RedundantLLMStream(llm.LLMStream):
     async def __anext__(self):
         if self._current_stream is None:
             try:
+                # Intento inicial ultrarrápido
                 self._current_stream = self._main_stream_fn()
             except Exception as e:
                 if self._backup_stream_fn:
-                    print(f"🚨 [Redundancy] Error al iniciar stream principal '{self._name}': {e}")
+                    print(f"🚨 [Redundancy] Fallo crítico al iniciar: {e}. Rescatando con Backup...")
                     self._current_stream = self._backup_stream_fn()
                     self._using_backup = True
                 else:
@@ -53,12 +54,17 @@ class RedundantLLMStream(llm.LLMStream):
         except StopAsyncIteration:
             raise StopAsyncIteration
         except Exception as e:
+            # Capturamos el error 429 (Quota) o 404 que ocurre DURANTE el stream
             if not self._using_backup and self._backup_stream_fn:
-                print(f"🚨 [Redundancy] El stream '{self._name}' falló a mitad (Quota/429): {e}")
-                print(f"🔄 [Redundancy] Cambiando a Backup en caliente...")
-                self._current_stream = self._backup_stream_fn()
-                self._using_backup = True
-                return await self._current_stream.__anext__()
+                print(f"🚨 [Redundancy] Error de cuota/conexión detectado: {e}")
+                print(f"🔄 [Redundancy] Saltando al motor de respaldo en caliente...")
+                try:
+                    self._current_stream = self._backup_stream_fn()
+                    self._using_backup = True
+                    return await self._current_stream.__anext__()
+                except Exception as e_backup:
+                    print(f"❌ [Redundancy] El motor de respaldo también falló: {e_backup}")
+                    raise e_backup
             raise e
 
     def __aiter__(self):
