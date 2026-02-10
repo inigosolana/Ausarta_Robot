@@ -45,10 +45,16 @@ const App: React.FC = () => {
         return <ResultsView />;
       case 'usage':
         return <UsageView />;
+      case 'automation':
+      case 'tools':
+      case 'models':
       default:
         return (
           <div className="flex items-center justify-center h-full text-gray-400">
-            <p>Feature under development: {currentView}</p>
+            <div className="text-center">
+              <BarChart3 size={48} className="mx-auto mb-4 opacity-20" />
+              <p>Módulo "{currentView}" en desarrollo o no implementado aún.</p>
+            </div>
           </div>
         );
     }
