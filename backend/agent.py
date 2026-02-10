@@ -346,8 +346,8 @@ async def entrypoint(ctx: JobContext):
         print(f"⚙️ [LLM Config] Provider: {provider} | Model: {model_name}")
 
         try:
-        if "gemini" in model_name.lower() or provider == 'google':
-             provider = "google"
+            if "gemini" in model_name.lower() or provider == 'google':
+                provider = "google"
                 # Google Gemini (via OpenAI compatible endpoint)
                 # Requiere GOOGLE_API_KEY
                 google_key = os.getenv("GOOGLE_API_KEY")
