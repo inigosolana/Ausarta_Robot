@@ -1038,8 +1038,29 @@ async def process_campaigns():
     from datetime import timedelta
     
     while True:
+        lkapi_worker = None
         try:
+            # Inicializar API para comprobar estado de salas
+            lkapi_worker = api.LiveKitAPI(
+                os.getenv("LIVEKIT_URL"),
+                os.getenv("LIVEKIT_API_KEY"),
+                os.getenv("LIVEKIT_API_SECRET"),
+            )
+            
+            # --- 0. CONTROL DE CONCURRENCIA ESTRICTO (1 LLAMADA A LA VEZ) ---
+            # Listamos las salas activas. Si hay ALGUNA, no lanzamos más.
+            active_rooms = await lkapi_worker.room.list_rooms(api.ListRoomsRequest())
+            # Filtramos solo las que parecen de encuestas (encuesta_XX o similares)
+            ongoing_calls = [r for r in active_rooms.rooms if "encuesta_" in r.name]
+            
+            if len(ongoing_calls) > 0:
+                print(f"⏳ [Worker] Hay {len(ongoing_calls)} llamadas en curso. Esperando a que terminen para lanzar la siguiente...")
+                await lkapi_worker.aclose()
+                await asyncio.sleep(5) 
+                continue # Saltamos ciclo hasta que se libere
+
             conn = get_db_connection()
+
             cursor = conn.cursor()
             
             # --- 1. ACTIVAR CAMPAÑAS PENDIENTES ---
@@ -1151,7 +1172,12 @@ async def process_campaigns():
                         cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE id = ?", (lead_id,))
                         conn.commit()
                         
-                        await asyncio.sleep(2) # Pausa anti-spam
+                        print("⏸️ [Worker] Llamada lanzada. Pausando 10s para asegurar estabilidad...")
+                        await asyncio.sleep(10) # Pausa solicitada por el usuario
+                        
+                        # IMPORTANTE: Romper el bucle de leads para volver a comprobar concurrencia arriba
+                        # Así garantizamos que no se lance la siguiente del array sin chequear rooms
+                        break 
                         
                     except Exception as e:
                         print(f"❌ [Worker] Fallo técnico al llamar {phone}: {e}")
@@ -1160,6 +1186,7 @@ async def process_campaigns():
                         conn.commit()
 
                 # --- 3. VERIFICAR FIN DE CAMPAÑA ---
+
                 # Una campaña acaba cuando NO hay leads en: pending, called, o (failed con intentos restantes)
                 cursor.execute("""
                     SELECT COUNT(*) FROM campaign_leads 
@@ -1179,11 +1206,14 @@ async def process_campaigns():
 
             cursor.close()
             conn.close()
+            if lkapi_worker: await lkapi_worker.aclose()
             
         except Exception as e:
             print(f"⚠️ [Worker] Error en ciclo de campañas: {e}")
             import traceback
             traceback.print_exc()
+            if lkapi_worker: await lkapi_worker.aclose()
+
             
         # Esperar 20 segundos para no saturar comprobando reintentos
         await asyncio.sleep(20)
