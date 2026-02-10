@@ -45,9 +45,10 @@ const App: React.FC = () => {
         return <ResultsView />;
       case 'usage':
         return <UsageView />;
+      case 'models':
+        return <ModelsView />;
       case 'automation':
       case 'tools':
-      case 'models':
       default:
         return (
           <div className="flex items-center justify-center h-full text-gray-400">
@@ -143,6 +144,13 @@ const App: React.FC = () => {
             label="Automation"
             isActive={currentView === 'automation'}
             onClick={() => setCurrentView('automation')}
+            collapsed={!isSidebarOpen}
+          />
+          <SidebarItem
+            icon={<Cpu size={18} />}
+            label="AI Models"
+            isActive={currentView === 'models'}
+            onClick={() => setCurrentView('models')}
             collapsed={!isSidebarOpen}
           />
           <SidebarItem

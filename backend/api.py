@@ -799,7 +799,36 @@ async def retry_campaign_failed(campaign_id: int):
     conn.commit()
     conn.close()
     return {"status": "success", "retried_count": count}
+
+@app.post("/api/campaigns/leads/{lead_id}/retry")
+async def retry_single_lead(lead_id: int):
+    """Reintenta manualmente un lead específico (reset a pending y 0 retries)"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
     
+    # 1. Resetear status y contadores
+    cursor.execute("""
+        UPDATE campaign_leads 
+        SET status = 'pending', retries_attempted = 0, next_retry_at = NULL
+        WHERE id = ?
+    """, (lead_id,))
+    
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Lead not found")
+        
+    # 2. Reactivar campaña si estaba parada
+    cursor.execute("SELECT campaign_id FROM campaign_leads WHERE id = ?", (lead_id,))
+    row = cursor.fetchone()
+    if row:
+        campaign_id = row['campaign_id']
+        # Si la campaña estaba completada o fallida, ponerla en running para que el worker la procese
+        cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = ? AND status != 'running'", (campaign_id,))
+    
+    conn.commit()
+    conn.close()
+    return {"status": "success"}
+
 @app.get("/api/results")
 async def get_results():
     conn = get_db_connection()

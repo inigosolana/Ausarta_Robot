@@ -290,9 +290,18 @@ export function CampaignsView() {
       // User asked: "que le de manualmente". Wait, I should add the endpoint to api.py first? 
       // I'll assume I can add a small endpoint or use a SQL injection? No.
       // Let's stick to displaying info first. I'll add the UI first.
-      alert("Functionality coming soon: Retry single lead");
+      const res = await fetch(`${API_URL}/api/campaigns/leads/${leadId}/retry`, { method: 'POST' });
+      if (res.ok) {
+        // Optimistic update
+        setCampaignLeads(prev => prev.map(l =>
+          l.id === leadId ? { ...l, status: 'pending', retries_attempted: 0 } : l
+        ));
+        alert("Lead requeued successfully!");
+      } else {
+        alert("Failed to retry lead");
+      }
     } catch (e) {
-      alert("Error");
+      alert("Error connecting to server");
     }
   };
 
@@ -430,7 +439,7 @@ export function CampaignsView() {
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status & Retries</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase w-1/3">Notes & Transcription</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Last Update</th>
-                  {/* <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th> */}
+                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -481,6 +490,18 @@ export function CampaignsView() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {lead.updated_at ? new Date(lead.updated_at).toLocaleString() : '-'}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      {lead.status === 'failed' && (
+                        <button
+                          onClick={() => handleRetryLead(lead.id)}
+                          className="text-xs bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-2 py-1 rounded shadow-sm inline-flex items-center gap-1 transition-all"
+                          title="Retry this lead immediately"
+                        >
+                          <Clock className="w-3 h-3 text-blue-500" />
+                          Retry
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
