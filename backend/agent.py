@@ -36,12 +36,13 @@ class RedundantLLM(llm.LLM):
         self._name = name
 
     def chat(self, **kwargs):
+        # Intentamos obtener el stream del principal
         try:
             return self._main.chat(**kwargs)
         except Exception as e:
             if self._backup:
-                print(f"🚨 [Redundancy] El motor '{self._name}' ha fallado: {e}")
-                print(f"🔄 [Redundancy] Saltando a motor de respaldo inmediatamente...")
+                print(f"🚨 [Redundancy] El motor principal '{self._name}' ha fallado: {e}")
+                print(f"🔄 [Redundancy] ACTIVANDO RESPALDO INMEDIATO...")
                 return self._backup.chat(**kwargs)
             raise e
 
