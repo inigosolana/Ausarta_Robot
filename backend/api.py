@@ -429,10 +429,10 @@ async def get_usage_stats():
 async def get_dashboard_integrations():
     """Retorna el estado de las integraciones externas"""
     return [
-        {"name": "LLM Provider", "provider": "Groq", "active": bool(os.getenv("GROQ_API_KEY")), "model": "llama-3.3-70b-versatile"},
-        {"name": "TTS Provider", "provider": "Cartesia", "active": bool(os.getenv("CARTESIA_API_KEY")), "model": "sonic-multilingual"},
-        {"name": "STT Provider", "provider": "Deepgram", "active": bool(os.getenv("DEEPGRAM_API_KEY")), "model": "nova-2"},
-        {"name": "LiveKit", "provider": "Cloud", "active": bool(os.getenv("LIVEKIT_API_KEY")), "url": os.getenv("LIVEKIT_URL")}
+        {"name": "LLM Provider", "provider": "Groq", "active": bool(os.getenv("GROQ_API_KEY")), "model": "llama-3.3-70b-versatile", "env_var": "GROQ_API_KEY"},
+        {"name": "TTS Provider", "provider": "Cartesia", "active": bool(os.getenv("CARTESIA_API_KEY")), "model": "sonic-multilingual", "env_var": "CARTESIA_API_KEY"},
+        {"name": "STT Provider", "provider": "Deepgram", "active": bool(os.getenv("DEEPGRAM_API_KEY")), "model": "nova-2", "env_var": "DEEPGRAM_API_KEY"},
+        {"name": "LiveKit", "provider": "Cloud", "active": bool(os.getenv("LIVEKIT_API_KEY")), "url": os.getenv("LIVEKIT_URL"), "env_var": "LIVEKIT_API_KEY"}
     ]
 
 @app.get("/api/alerts")
