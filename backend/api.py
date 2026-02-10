@@ -171,6 +171,22 @@ REGLAS CRÍTICAS:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # Tabla de configuración dinámica (LLM provider, model, etc)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key VARCHAR(50) PRIMARY KEY,
+            value TEXT
+        )
+    ''')
+    
+    # Valores por defecto para settings si no existen
+    default_settings = {
+        "llm_provider": "groq",
+        "llm_model": "llama-3.3-70b-versatile"
+    }
+    for k, v in default_settings.items():
+        cursor.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)", (k, v))
 
     # Insertar Template por defecto (Ausarta) si no existe
     cursor.execute('SELECT COUNT(*) FROM prompt_templates')
@@ -432,8 +448,34 @@ async def get_dashboard_integrations():
         {"name": "LLM Provider", "provider": "Groq", "active": bool(os.getenv("GROQ_API_KEY")), "model": "llama-3.3-70b-versatile", "env_var": "GROQ_API_KEY"},
         {"name": "TTS Provider", "provider": "Cartesia", "active": bool(os.getenv("CARTESIA_API_KEY")), "model": "sonic-multilingual", "env_var": "CARTESIA_API_KEY"},
         {"name": "STT Provider", "provider": "Deepgram", "active": bool(os.getenv("DEEPGRAM_API_KEY")), "model": "nova-2", "env_var": "DEEPGRAM_API_KEY"},
-        {"name": "LiveKit", "provider": "Cloud", "active": bool(os.getenv("LIVEKIT_API_KEY")), "url": os.getenv("LIVEKIT_URL"), "env_var": "LIVEKIT_API_KEY"}
+        {"name": "LiveKit", "provider": "Cloud", "active": bool(os.getenv("LIVEKIT_API_KEY")), "url": os.getenv("LIVEKIT_URL"), "env_var": "LIVEKIT_API_KEY"},
+        {"name": "Google Gemini", "provider": "Google", "active": bool(os.getenv("GOOGLE_API_KEY")), "model": "gemini-1.5-flash", "env_var": "GOOGLE_API_KEY"}
     ]
+
+# --- SETTINGS ENDPOINTS ---
+
+@app.get("/api/settings")
+async def get_settings():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT key, value FROM app_settings")
+    rows = cursor.fetchall()
+    conn.close()
+    return {row['key']: row['value'] for row in rows}
+
+class SettingsUpdate(BaseModel):
+    llm_provider: str
+    llm_model: str
+
+@app.post("/api/settings")
+async def update_settings(settings: SettingsUpdate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE app_settings SET value = ? WHERE key = 'llm_provider'", (settings.llm_provider,))
+    cursor.execute("UPDATE app_settings SET value = ? WHERE key = 'llm_model'", (settings.llm_model,))
+    conn.commit()
+    conn.close()
+    return {"status": "success"}
 
 @app.get("/api/alerts")
 async def get_system_alerts():
@@ -1118,7 +1160,21 @@ async def process_campaigns():
                 print(f"🚀 [Worker] Activando campaña '{cmp['name']}' (ID: {cmp['id']})...")
                 cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = ?", (cmp['id'],))
             conn.commit()
-
+            
+            # --- 1.5 TIMEOUT WATCHDOG (FIX FOR LOST CALLS) ---
+            # Si una lead lleva en 'called' más de 5 minutos, asumimos que no cogió o falló
+            # La marcamos como 'failed' para que el sistema de reintentos la coja de nuevo
+            timeout_threshold = datetime.utcnow() - timedelta(minutes=5)
+            cursor.execute("""
+                UPDATE campaign_leads
+                SET status = 'failed'
+                WHERE status = 'called'
+                AND last_call_at <= ?
+            """, (timeout_threshold,))
+            if cursor.rowcount > 0:
+                print(f"♻️ [Worker] Timeout Watchdog: {cursor.rowcount} llamadas marcadas como failed por timeout (no answer).")
+                conn.commit()
+            
             # --- 2. PROCESAR CAMPAÑAS ACTIVAS (RUNNING) ---
             cursor.execute("SELECT * FROM campaigns WHERE status = 'running'")
             running_campaigns = cursor.fetchall()

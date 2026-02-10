@@ -70,6 +70,20 @@ def get_config():
     finally:
         if 'conn' in locals(): conn.close()
 
+def get_app_settings():
+    """Lee configuración global de la tabla app_settings"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM app_settings")
+        d = {row['key']: row['value'] for row in cursor.fetchall()}
+        conn.close()
+        return d
+    except Exception as e:
+        print(f"⚠️ [Agent] Error leyendo settings: {e}")
+        return {}
+
 def log_system_alert(type, message):
     """Registra una alerta en la BD para que el frontend la muestre"""
     try:
@@ -313,16 +327,39 @@ async def entrypoint(ctx: JobContext):
         else:
              print(f"🔑 [Security] GROQ_API_KEY encontrada (termina en ...{groq_key[-4:] if len(groq_key)>4 else '****'})")
 
-        print(f"🤖 [Init] Configurando LLM con modelo: {llm_model}")
+        print(f"🤖 [Init] Configurando LLM...")
+        
+        # 1. Leer configuración dinámica
+        app_settings = get_app_settings()
+        provider = app_settings.get("llm_provider", "groq")
+        model_name = app_settings.get("llm_model", "llama-3.3-70b-versatile")
+        
+        print(f"⚙️ [LLM Config] Provider: {provider} | Model: {model_name}")
 
         try:
-            llm_plugin = openai.LLM(
-                model=llm_model, 
-                base_url="https://api.groq.com/openai/v1", 
-                api_key=groq_key
-            )
+            if provider == "google":
+                # Google Gemini (via OpenAI compatible endpoint)
+                # Requiere GOOGLE_API_KEY
+                google_key = os.getenv("GOOGLE_API_KEY")
+                if not google_key:
+                     print("❌ [Error] Se seleccionó Google pero falta GOOGLE_API_KEY")
+                     log_system_alert("config_error", "Falta GOOGLE_API_KEY para usar Gemini.")
+                     raise ValueError("Missing GOOGLE_API_KEY")
+                     
+                llm_plugin = openai.LLM(
+                    model=model_name,
+                    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                    api_key=google_key
+                )
+            else:
+                # Default: Groq
+                llm_plugin = openai.LLM(
+                    model=model_name, 
+                    base_url="https://api.groq.com/openai/v1", 
+                    api_key=groq_key
+                )
         except Exception as e:
-            print(f"❌ [Error Init] Falló al crear instancia LLM: {e}")
+            print(f"❌ [Error Init] Falló al crear instancia LLM ({provider}): {e}")
             raise e
         session = AgentSession(
             stt=stt,
