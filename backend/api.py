@@ -938,7 +938,8 @@ async def guardar_encuesta(datos: FinEncuesta):
                 cursor.execute("UPDATE campaign_leads SET status = ? WHERE phone_number = ? AND status = 'pending'", (lead_status, phone_res[0]))
         elif len(update_fields) > 1:
             notas_rescatadas = [f for f in update_fields if 'puntuacion' in f]
-            if len(notas_rescatadas) >= 2 or "comentarios" in str(update_fields):
+            # Si hay AL MENOS UNA nota rescatada o comentario, damos la ficha por válida (completada)
+            if len(notas_rescatadas) >= 1 or "comentarios" in str(update_fields):
                 print(f"✅ [Auto-Close] Marcando ficha {id_final} como completada por rescate exitoso.")
                 update_fields.append("completada = 1")
                 cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE call_id = ?", (id_final,))

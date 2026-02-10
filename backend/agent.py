@@ -220,6 +220,8 @@ async def entrypoint(ctx: JobContext):
     agent_instance.total_tokens = 0
     agent_instance.total_seconds = 0
     agent_instance.last_client_text = ""
+    agent_instance.pending_client_text = "" # Buffer para lo último dicho (aunque no sea final)
+
 
     # Sincronización en tiempo real (evita perder datos si cuelgan de golpe)
     async def sync_data():
@@ -241,15 +243,17 @@ async def entrypoint(ctx: JobContext):
         print(f"🛑 [Shutdown] Iniciando limpieza para sala: {ctx.room.name}")
         # Calcular duración aproximada si hubo intercambio
         duration = 0
-        if agent_instance.interaction_count > 0:
-            duration = int(asyncio.get_event_loop().time() - start_time)
-        
+        if agent_instance.pending_client_text:
+            print(f"✂️ [Cleanup] Rescatando texto final no procesado: '{agent_instance.pending_client_text}'")
+            agent_instance.full_transcript += f"Cliente (Corte): {agent_instance.pending_client_text}\n"
+
         if survey_id:
             # Si el agente marcó completada explícitamente, o si tenemos AL MENOS UNA NOTA guardada
             has_data = any(v is not None for v in agent_instance.current_scores.values())
-            final_status = 'completed' if (agent_instance.is_completed or has_data) else None
+            # Si hay datos O texto pendiente rescatado, intentamos marcar como completada
+            final_status = 'completed' if (agent_instance.is_completed or has_data or agent_instance.pending_client_text) else None
             
-            print(f"🔍 [Cleanup] Preparando guardado. has_data={has_data}, final_status={final_status}")
+            print(f"🔍 [Cleanup] Preparando guardado. has_data={has_data}, pending={bool(agent_instance.pending_client_text)}, final_status={final_status}")
             
             # Intentar usar la URL del Bridge detectada o 127.0.0.1
             url = f"http://127.0.0.1:8001/guardar-encuesta"
@@ -276,8 +280,8 @@ async def entrypoint(ctx: JobContext):
     ctx.add_shutdown_callback(cleanup)
 
     try:
-        # VAD optimizado: min_speech 0.1s para captar "sí" rápido, min_silence 1.0s para no cortar frases
-        vad = silero.VAD.load(min_speech_duration=0.1, min_silence_duration=1.0)
+        # VAD ajustado: 0.1s para detectar rápido, 0.5s paradas cortas (más ágil)
+        vad = silero.VAD.load(min_speech_duration=0.1, min_silence_duration=0.5)
         
         # Usar los plugins directamente (inference.STT/TTS
         stt = deepgram.STT(model=stt_model, language="es")
@@ -311,12 +315,21 @@ async def entrypoint(ctx: JobContext):
 
         @session.on("transcription_received")
         def on_transcription(transcript):
-            if transcript.is_final:
-                role = "Agente" if transcript.participant == ctx.room.local_participant else "Cliente"
+            role = "Agente" if transcript.participant == ctx.room.local_participant else "Cliente"
+            
+            if not transcript.is_final:
+                # Guardamos lo que se está diciendo por si se corta la llamada AHORA MISMO
+                if role == "Cliente":
+                    agent_instance.pending_client_text = transcript.text
+            else:
+                # Finalizado
                 msg = f"{role}: {transcript.text}"
                 print(f"🎤 {msg}")
+                
                 if role == "Cliente":
                     agent_instance.interaction_count += 1
+                    agent_instance.pending_client_text = "" # Limpiamos buffer
+                
                 agent_instance.full_transcript += f"{msg}\n"
                 
                 if role == "Cliente":
