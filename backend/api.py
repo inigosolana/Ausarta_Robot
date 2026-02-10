@@ -622,7 +622,18 @@ async def get_campaign(campaign_id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    cursor.execute("SELECT * FROM campaign_leads WHERE campaign_id = ?", (campaign_id,))
+    cursor.execute("""
+        SELECT 
+            cl.*,
+            e.puntuacion_comercial,
+            e.puntuacion_instalador,
+            e.puntuacion_rapidez,
+            e.comentarios,
+            e.transcription as transcription_preview
+        FROM campaign_leads cl
+        LEFT JOIN encuestas e ON cl.call_id = e.id
+        WHERE cl.campaign_id = ?
+    """, (campaign_id,))
     leads = cursor.fetchall()
     conn.close()
     
@@ -702,7 +713,7 @@ async def retry_campaign_failed(campaign_id: int):
     # 1. Resetear leads fallidos a pending
     cursor.execute("""
         UPDATE campaign_leads 
-        SET status = 'pending', updated_at = CURRENT_TIMESTAMP 
+        SET status = 'pending', retries_attempted = 0, next_retry_at = NULL
         WHERE campaign_id = ? AND status = 'failed'
     """, (campaign_id,))
     
