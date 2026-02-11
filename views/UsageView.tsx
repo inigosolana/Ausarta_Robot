@@ -174,113 +174,109 @@ const UsageView: React.FC = () => {
                         <Zap size={20} className="text-yellow-500" />
                         Capacidades y Límites en Tiempo Real
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {liveLimits.groq && liveLimits.groq.active && (
-                            <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {/* Groq Card with Model Selector */}
+                        {liveLimits.groq_models && (
+                            <div className="lg:col-span-2 p-5 rounded-xl bg-gray-50 border border-gray-100">
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-2">
                                         <img src="https://groq.com/favicon.ico" className="w-5 h-5 rounded" />
-                                        <span className="font-bold text-gray-900">Groq Cloud</span>
+                                        <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">Groq Quotas Per Model</span>
                                     </div>
-                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase">Live</span>
+                                    <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">Live</span>
                                 </div>
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-xs text-gray-500">Tokens Restantes:</span>
-                                        <span className="text-sm font-mono font-bold text-blue-600">
-                                            {Number(liveLimits.groq.tokens_remaining).toLocaleString()} / {Number(liveLimits.groq.tokens_limit).toLocaleString()}
-                                        </span>
-                                    </div>
-                                    <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                                        <div
-                                            className="bg-blue-600 h-1.5 transition-all duration-1000"
-                                            style={{ width: `${(Number(liveLimits.groq.tokens_remaining) / Number(liveLimits.groq.tokens_limit)) * 100}%` }}
-                                        ></div>
-                                    </div>
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-xs text-gray-500">Peticiones Restantes:</span>
-                                        <span className="text-sm font-mono font-bold text-gray-700">{liveLimits.groq.requests_remaining}</span>
-                                    </div>
-                                    <div className="text-[10px] text-gray-400 mt-2 italic text-right">
-                                        Reset en: {liveLimits.groq.reset_tokens}
-                                    </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {Object.entries(liveLimits.groq_models).map(([model, data]: [string, any]) => (
+                                        <div key={model} className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm">
+                                            <div className="text-[10px] font-bold text-gray-400 truncate mb-2">{model}</div>
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between text-[11px]">
+                                                    <span className="text-gray-500">Tokens Restantes:</span>
+                                                    <span className="font-mono font-bold text-blue-600">{Number(data.tokens_remaining).toLocaleString()}</span>
+                                                </div>
+                                                <div className="w-full bg-gray-100 rounded-full h-1">
+                                                    <div
+                                                        className="bg-blue-500 h-1 rounded-full"
+                                                        style={{ width: `${Math.min(100, (data.tokens_remaining / data.tokens_limit) * 100)}%` }}
+                                                    ></div>
+                                                </div>
+                                                <div className="flex justify-between text-[11px]">
+                                                    <span className="text-gray-500">RPM:</span>
+                                                    <span className="font-mono font-bold text-gray-700">{data.requests_remaining}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         )}
 
+                        {/* OpenAI Card */}
                         {liveLimits.openai && liveLimits.openai.active && (
-                            <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
+                            <div className="p-5 rounded-xl bg-gray-50 border border-gray-100">
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-2">
                                         <span className="w-5 h-5 bg-black rounded flex items-center justify-center text-[10px] text-white font-bold">O</span>
-                                        <span className="font-bold text-gray-900">OpenAI Quota (TPM)</span>
+                                        <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">OpenAI (TPM)</span>
                                     </div>
-                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase">Live</span>
                                 </div>
                                 <div className="space-y-3">
                                     <div className="flex justify-between items-center text-xs">
                                         <span className="text-gray-500">TPM Restante:</span>
                                         <span className="font-mono font-bold text-green-600">
-                                            {liveLimits.openai.tokens_remaining ? Number(liveLimits.openai.tokens_remaining).toLocaleString() : '---'}
+                                            {liveLimits.openai.tokens_remaining ? Number(liveLimits.openai.tokens_remaining).toLocaleString() : 'Check Dashboard'}
                                         </span>
                                     </div>
                                     <div className="flex justify-between items-center text-xs">
                                         <span className="text-gray-500">RPM Restante:</span>
                                         <span className="font-mono font-bold text-gray-700">{liveLimits.openai.requests_remaining || '---'}</span>
                                     </div>
-                                    <div className="p-2 bg-green-50 rounded border border-green-100 text-[9px] text-green-700">
+                                    <div className="p-2 bg-green-50 rounded border border-green-100 text-[10px] text-green-700 text-center font-medium">
                                         {liveLimits.openai.info}
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {liveLimits.google && liveLimits.google.active && (
-                            <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
+                        {/* Deepgram Card */}
+                        {liveLimits.deepgram && (
+                            <div className="p-5 rounded-xl bg-gray-50 border border-gray-100">
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-2">
-                                        <span className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center text-[10px] text-white font-bold">G</span>
-                                        <span className="font-bold text-gray-900">Google Gemini</span>
+                                        <Mic size={16} className="text-red-500" />
+                                        <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">Deepgram Balance</span>
                                     </div>
-                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase">Live</span>
                                 </div>
-                                <div className="space-y-2">
-                                    <div className="text-sm text-gray-700 font-medium">{liveLimits.google.info}</div>
-                                    <div className="text-xs text-gray-500">Modelo: {liveLimits.google.model}</div>
-                                    <div className="mt-4 p-2 bg-blue-50 rounded border border-blue-100 flex items-center gap-2">
-                                        <AlertTriangle size={14} className="text-blue-400" />
-                                        <span className="text-[10px] text-blue-600">El Tier Standard de Gemini actualiza cuotas por minuto.</span>
+                                <div className="space-y-4">
+                                    {liveLimits.deepgram.balances?.map((b: any, i: number) => (
+                                        <div key={i} className="flex flex-col gap-1">
+                                            <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                                {b.units === 'USD' ? 'Créditos Disponibles' : 'Balance'}
+                                            </div>
+                                            <div className="text-3xl font-black text-gray-900">
+                                                {b.units === 'USD' ? `$${Number(b.amount).toFixed(2)}` : `${b.amount} ${b.units}`}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <div className="text-[10px] text-gray-500 italic bg-white p-2 rounded border border-gray-100">
+                                        Este saldo se usa para transcripción en tiempo real (STT).
                                     </div>
-                                    <button
-                                        onClick={async () => {
-                                            const res = await fetch(`${API_URL}/ai/diagnose-google`);
-                                            const data = await res.json();
-                                            if (data.status === 'success') {
-                                                alert("Modelos disponibles en tu cuenta:\n\n" + data.available_models.join("\n"));
-                                            } else {
-                                                alert("Error de diagnóstico: " + data.message);
-                                            }
-                                        }}
-                                        className="mt-3 w-full py-1.5 border border-blue-200 text-[10px] text-blue-600 font-bold rounded hover:bg-blue-100 transition-colors uppercase tracking-wider"
-                                    >
-                                        🔍 Diagnosticar Modelos Disponibles
-                                    </button>
                                 </div>
                             </div>
                         )}
 
+                        {/* ElevenLabs Card */}
                         {liveLimits.elevenlabs && liveLimits.elevenlabs.active && (
-                            <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
+                            <div className="p-5 rounded-xl bg-gray-50 border border-gray-100">
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-2">
                                         <Volume2 size={16} className="text-purple-600" />
-                                        <span className="font-bold text-gray-900">ElevenLabs Characters</span>
+                                        <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">ElevenLabs</span>
                                     </div>
-                                    <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold uppercase">Live</span>
                                 </div>
                                 <div className="space-y-3">
                                     <div className="flex justify-between items-center text-xs">
-                                        <span className="text-gray-500">Sobrante:</span>
+                                        <span className="text-gray-500">Chars Sobrantes:</span>
                                         <span className="font-mono font-bold text-purple-600">
                                             {Number(liveLimits.elevenlabs.characters_remaining).toLocaleString()}
                                         </span>
@@ -291,9 +287,35 @@ const UsageView: React.FC = () => {
                                             style={{ width: `${(liveLimits.elevenlabs.characters_remaining / liveLimits.elevenlabs.characters_limit) * 100}%` }}
                                         ></div>
                                     </div>
-                                    <div className="text-[9px] text-gray-400">
-                                        Total del Plan: {Number(liveLimits.elevenlabs.characters_limit).toLocaleString()} chars
+                                    <div className="text-[10px] text-gray-400 text-center font-medium italic">
+                                        {Math.round((liveLimits.elevenlabs.characters_remaining / 1000) * 10) / 10}k / {Number(liveLimits.elevenlabs.characters_limit / 1000).toLocaleString()}k chars
                                     </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Google Card */}
+                        {liveLimits.google && liveLimits.google.active && (
+                            <div className="p-5 rounded-xl bg-gray-50 border border-gray-100">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center text-[10px] text-white font-bold">G</span>
+                                        <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">Google Gemini</span>
+                                    </div>
+                                </div>
+                                <div className="space-y-3">
+                                    <div className="text-xs text-gray-700 font-bold">{liveLimits.google.info}</div>
+                                    <div className="text-[10px] text-gray-500">Modelo Activo: {liveLimits.google.model}</div>
+                                    <button
+                                        onClick={async () => {
+                                            const res = await fetch(`${API_URL}/ai/diagnose-google`);
+                                            const data = await res.json();
+                                            if (data.status === 'success') alert("Modelos: " + data.available_models.join(", "));
+                                        }}
+                                        className="w-full py-2 border border-blue-200 text-[10px] text-blue-600 font-bold rounded hover:bg-blue-50 transition-colors uppercase"
+                                    >
+                                        Diagnosticar
+                                    </button>
                                 </div>
                             </div>
                         )}

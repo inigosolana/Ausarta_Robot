@@ -472,27 +472,30 @@ async def get_ai_limits():
     """Consulta en tiempo real los límites de los proveedores configurados"""
     results = {}
     
-    # 1. Groq - Hacemos un minirequest de 1 token para forzar headers de límite
+    # 1. Groq - Múltiples modelos
     groq_key = os.getenv("GROQ_API_KEY")
     if groq_key:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.groq.com/openai/v1/chat/completions", 
-                    headers={"Authorization": f"Bearer {groq_key}"},
-                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                    timeout=5
-                ) as resp:
-                    results["groq"] = {
-                        "active": resp.status == 200 or resp.status == 429,
-                        "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
-                        "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
-                        "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
-                        "reset_tokens": resp.headers.get("x-ratelimit-reset-tokens"),
-                        "status": resp.status
-                    }
-        except Exception as e:
-            results["groq"] = {"active": False, "error": str(e)}
+        results["groq_models"] = {}
+        for model in ["llama-3.3-70b-versatile", "mixtral-8x7b-32768"]:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        "https://api.groq.com/openai/v1/chat/completions", 
+                        headers={"Authorization": f"Bearer {groq_key}"},
+                        json={"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
+                        timeout=3
+                    ) as resp:
+                        results["groq_models"][model] = {
+                            "active": resp.status == 200 or resp.status == 429,
+                            "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
+                            "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
+                            "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
+                            "status": resp.status
+                        }
+            except: pass
+        # Compatibilidad hacia atrás
+        if results["groq_models"]:
+            results["groq"] = next(iter(results["groq_models"].values()))
 
     # 2. Google Gemini
     google_key = os.getenv("GOOGLE_API_KEY")
@@ -525,7 +528,23 @@ async def get_ai_limits():
         except Exception as e:
             results["openai"] = {"active": False, "error": str(e)}
 
-    # 4. ElevenLabs (Si se usa)
+    # 4. Deepgram - Balances de Proyecto
+    dg_key = os.getenv("DEEPGRAM_API_KEY")
+    if dg_key:
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {"Authorization": f"Token {dg_key}"}
+                async with session.get("https://api.deepgram.com/v1/projects", headers=headers, timeout=5) as p_resp:
+                    if p_resp.status == 200:
+                        projects = (await p_resp.json()).get("projects", [])
+                        if projects:
+                            p_id = projects[0].get("project_id")
+                            async with session.get(f"https://api.deepgram.com/v1/projects/{p_id}/balances", headers=headers, timeout=5) as b_resp:
+                                if b_resp.status == 200:
+                                    results["deepgram"] = (await b_resp.json())
+        except: pass
+
+    # 5. ElevenLabs
     el_key = os.getenv("ELEVENLABS_API_KEY")
     if el_key:
         try:
@@ -537,7 +556,7 @@ async def get_ai_limits():
                             "active": True,
                             "characters_remaining": data.get("character_limit", 0) - data.get("character_count", 0),
                             "characters_limit": data.get("character_limit"),
-                            "reset_date": data.get("next_character_count_reset_unix")
+                            "status": "active"
                         }
         except: pass
 
