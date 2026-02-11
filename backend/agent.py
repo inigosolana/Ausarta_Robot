@@ -74,10 +74,9 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
     return [(c[0], c[1]) for c in candidates]
 
 class RedundantLLMStream(llm.LLMStream):
-    def __init__(self, candidates: list, llm_instance: llm.LLM, parent_agent=None):
-        # LLMStream requires 'llm' instance and optional 'chat_ctx'
-        # TypeError: LLMStream.__init__() missing 1 required positional argument: 'llm'
-        super().__init__(llm=llm_instance, chat_ctx=None)
+    def __init__(self, candidates: list, llm_instance: llm.LLM, chat_ctx: llm.ChatContext, fnc_ctx: llm.FunctionContext = None, parent_agent=None):
+        # LLMStream.__init__ signature: (self, llm: LLM, chat_ctx: ChatContext, *, fnc_ctx: FunctionContext | None, conn_options: APIConnectOptions | None)
+        super().__init__(llm=llm_instance, chat_ctx=chat_ctx, fnc_ctx=fnc_ctx, conn_options=None)
         
         self._candidates = candidates # Lista de (nombre, factory_fn)
         self._current_idx = 0
@@ -124,16 +123,30 @@ class RedundantLLM(llm.LLM):
         self._candidates = candidates
         self._parent_agent = parent_agent
 
-    def chat(self, **kwargs):
+    def chat(self, chat_ctx, fnc_ctx=None, **kwargs):
+        # Extract arguments required by LLMStream
+        # Note: 'chat' method signature is typically (chat_ctx, fnc_ctx, **kwargs)
+        
         # Creamos factories para que cada reintento sea una petición fresca
+        # We must pass all arguments to the underlying plugin chat method
+        chat_kwargs = {"chat_ctx": chat_ctx, "fnc_ctx": fnc_ctx}
+        chat_kwargs.update(kwargs)
+
         factories = []
         for name, plugin in self._candidates:
             if plugin:
                 # Create a closure that captures the plugin properly
-                factories.append((name, lambda p=plugin: p.chat(**kwargs)))
+                factories.append((name, lambda p=plugin: p.chat(**chat_kwargs)))
                 
         # We must pass 'self' (the LLM instance) to the stream
-        return RedundantLLMStream(factories, llm_instance=self, parent_agent=self._parent_agent)
+        # And pass required args to RedundantLLMStream
+        return RedundantLLMStream(
+            factories, 
+            llm_instance=self, 
+            chat_ctx=chat_ctx, 
+            fnc_ctx=fnc_ctx,
+            parent_agent=self._parent_agent
+        )
 
 from livekit.plugins import (
     silero,
