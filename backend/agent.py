@@ -75,7 +75,10 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
 
 class RedundantLLMStream(llm.LLMStream):
     def __init__(self, candidates: list, parent_agent=None):
-        super().__init__(None, None)
+        # LLMStream.__init__ expects (chat_ctx: ChatContext). 
+        # Since we are wrapping other streams, we can pass None or a dummy context.
+        # The error said "takes 2 positional arguments but 3 were given", meaning (self, arg1) is expected, but we gave (self, arg1, arg2).
+        super().__init__(chat_ctx=None)
         self._candidates = candidates # Lista de (nombre, factory_fn)
         self._current_idx = 0
         self._current_stream = None
