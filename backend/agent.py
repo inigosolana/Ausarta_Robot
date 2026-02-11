@@ -508,8 +508,10 @@ async def entrypoint(ctx: JobContext):
        c) "Del 0 al 10, ¿cómo calificaría la rapidez?" → guardar_encuesta(nota_rapidez=X)
     
     6. RECHAZO INICIAL: Si el usuario dice que NO tiene un minuto o no quiere hacer la encuesta al principio:
-       - Llama a `guardar_encuesta(status='rejected_opt_out')`.
-       - Despídete cortésmente y finaliza con `finalizar_llamada()`.
+       - Di "Entendido. Muchas gracias, que tenga un buen día"
+       - Llama a `guardar_encuesta(status='rejected_opt_out')`
+       - **INMEDIATAMENTE** llama a `finalizar_llamada()` para colgar
+       - NO esperes más respuestas
     
     7. FINALIZACIÓN (MUY IMPORTANTE):
        - Después de recibir las 3 notas (comercial, instalador, rapidez), pregunta: "¿Desea dejar algún comentario adicional?"
