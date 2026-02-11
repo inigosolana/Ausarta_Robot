@@ -63,20 +63,22 @@ const ModelsView: React.FC = () => {
     if (settings.llm_provider === 'groq') {
       return [
         'llama-3.3-70b-versatile',
-        'llama3-70b-8192',
-        'llama3-8b-8192',
-        'mixtral-8x7b-32768',
-        'gemma-7b-it'
+        'mixtral-8x7b-32768'
       ];
     } else if (settings.llm_provider === 'google') {
       return [
         'models/gemini-2.0-flash',
         'models/gemini-2.0-flash-lite',
-        'models/gemini-2.5-flash',
-        'models/gemini-2.5-pro'
+        'models/gemini-1.5-flash'
+      ];
+    } else if (settings.llm_provider === 'openai') {
+      return [
+        'gpt-4o',
+        'gpt-4o-mini',
+        'gpt-4-turbo'
       ];
     }
-    return []; // Custom text input fallback
+    return [];
   };
 
   return (
@@ -124,15 +126,18 @@ const ModelsView: React.FC = () => {
                     onChange={(e) => setSettings({ ...settings, llm_provider: e.target.value })}
                     className="w-full h-11 px-4 pr-10 appearance-none bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
                   >
+                    <option value="openai">OpenAI (GPT-4o, mini)</option>
                     <option value="groq">Groq (Llama 3, Mixtral)</option>
                     <option value="google">Google Gemini</option>
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
                 </div>
                 <p className="text-xs text-gray-400 mt-2">
-                  {settings.llm_provider === 'google'
-                    ? 'Requires GOOGLE_API_KEY in environment variables.'
-                    : 'Requires GROQ_API_KEY in environment variables.'}
+                  {settings.llm_provider === 'openai'
+                    ? 'Requires OPENAI_API_KEY in environment variables.'
+                    : settings.llm_provider === 'google'
+                      ? 'Requires GOOGLE_API_KEY in environment variables.'
+                      : 'Requires GROQ_API_KEY in environment variables.'}
                 </p>
               </div>
 
@@ -146,7 +151,6 @@ const ModelsView: React.FC = () => {
                   {getModelOptions().map(opt => (
                     <option key={opt} value={opt}>{opt}</option>
                   ))}
-                  <option value="custom">Custom...</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
               </div>
