@@ -438,14 +438,28 @@ class DefaultAgent(Agent):
     ) -> str | None:
         """Corta la llamada inmediatamente. Usar tras despedirse."""
         print(f"🛠️ [Tool] Finalizando llamada en sala: {nombre_sala}")
+        
+        # Marcar como completada para que el cleanup lo detecte
+        self.is_completed = True
+        print(f"✅ [Tool] Encuesta marcada como completada")
+        
         context.disallow_interruptions()
         
-        # Intentar guardar una última vez con la transcripción completa antes de colgar
+        # Guardar una última vez antes de colgar
         try:
-             # Buscar el ID de encuesta en las instrucciones o contexto si fuera posible, 
-             # pero aquí confiamos en que ya se ha ido guardando.
-             pass
-        except: pass
+            import re
+            match = re.search(r'encuesta_(\d+)', nombre_sala)
+            if match:
+                survey_id = int(match.group(1))
+                await self.helper_save_survey(
+                    id_encuesta=survey_id,
+                    transcript=self.full_transcript,
+                    status='completed',
+                    **self.current_scores
+                )
+                print(f"💾 [Tool] Guardado final antes de colgar (ID: {survey_id})")
+        except Exception as e:
+            print(f"⚠️ [Tool] Error al guardar antes de colgar: {e}")
 
         url = f"{self.server_url}/colgar"
         payload = {"nombre_sala": nombre_sala}
@@ -487,14 +501,29 @@ async def entrypoint(ctx: JobContext):
     2. Al recibir UNA respuesta, llama a `guardar_encuesta` SOLO con ese dato.
     3. NO inventes ni rellenes las otras notas si el usuario no las ha dicho aún.
     4. Si el usuario dice un número suelto, asúmelo para la pregunta actual.
-    5. Preguntas:
-       - Comercial (0-10) -> guardar_encuesta(nota_comercial=X)
-       - Instalador (0-10) -> guardar_encuesta(nota_instalador=X)
-       - Rapidez (0-10) -> guardar_encuesta(nota_rapidez=X)
+    
+    5. PREGUNTAS OBLIGATORIAS (en orden):
+       a) "Del 0 al 10, ¿cómo calificaría al comercial?" → guardar_encuesta(nota_comercial=X)
+       b) "Del 0 al 10, ¿cómo calificaría al instalador?" → guardar_encuesta(nota_instalador=X)
+       c) "Del 0 al 10, ¿cómo calificaría la rapidez?" → guardar_encuesta(nota_rapidez=X)
+    
     6. RECHAZO INICIAL: Si el usuario dice que NO tiene un minuto o no quiere hacer la encuesta al principio:
        - Llama a `guardar_encuesta(status='rejected_opt_out')`.
-       - Despídete cortésmente y finaliza.
-    7. Al final, despídete y usa `finalizar_llamada`.
+       - Despídete cortésmente y finaliza con `finalizar_llamada()`.
+    
+    7. FINALIZACIÓN (MUY IMPORTANTE):
+       - Después de recibir las 3 notas (comercial, instalador, rapidez), pregunta: "¿Desea dejar algún comentario adicional?"
+       - Si dice SÍ: 
+         * Escucha el comentario completo
+         * Llama a `guardar_encuesta(comentarios="...")`
+         * Di "Gracias por su comentario. Muchas gracias por su tiempo, que tenga un buen día"
+         * Llama a `finalizar_llamada()`
+       - Si dice NO o cualquier negativa: 
+         * NO insistas
+         * Di "Perfecto. Muchas gracias por su tiempo, que tenga un buen día"
+         * Llama a `finalizar_llamada()`
+       - **SIEMPRE** finaliza con `finalizar_llamada()` después de despedirte.
+       - NO esperes más respuestas después de `finalizar_llamada()`.
     """
 
     # Extraer ID de la sala
