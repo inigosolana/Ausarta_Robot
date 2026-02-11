@@ -50,9 +50,10 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google", p
                                 # Evitar modelos experimentales (como 2.5-flash) si no son el preferido
                                 is_preferred = preferred_model and preferred_model in name
                                 if "2.5" in name and not is_preferred:
-                                    priority = 10
+                                    priority = 100 # Muy baja prioridad
                                 else:
-                                    priority = 1 if is_preferred else 2
+                                    # Base Google: 30
+                                    priority = 1 if is_preferred else 30
                                 candidates.append((f"Google {name}", google.LLM(model=name, api_key=google_key), priority))
                     elif resp.status == 429:
                         print("⚠️ [Discovery] Google está en Rate Limit (429). Prioridad bajada.")
@@ -62,7 +63,8 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google", p
     # 2. Añadir Groq (si hay clave)
     if groq_key:
         is_groq_pref = preferred_provider == "groq"
-        groq_prio = 1 if is_groq_pref else 3
+        # Base Groq: 20
+        groq_prio = 1 if is_groq_pref else 20
         candidates.append(("Groq Llama 3.3", openai.LLM(
             model="llama-3.3-70b-versatile", 
             base_url="https://api.groq.com/openai/v1", 
@@ -78,7 +80,8 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google", p
     if openai_key:
         try:
             is_openai_pref = preferred_provider == "openai"
-            openai_prio = 1 if is_openai_pref else 5
+            # Base OpenAI: 10
+            openai_prio = 1 if is_openai_pref else 10
             
             headers = {"Authorization": f"Bearer {openai_key}"}
             async with aiohttp.ClientSession() as session:
@@ -91,7 +94,7 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google", p
                             m_id = m.get('id', '')
                             if any(am in m_id for am in allowed_models):
                                 is_preferred = preferred_model and preferred_model in m_id
-                                priority = 1 if is_preferred else openai_prio
+                                priority = 1 if (is_preferred or is_openai_pref) else 10
                                 candidates.append((f"OpenAI {m_id}", openai.LLM(model=m_id, api_key=openai_key), priority))
                                 found_models.append(m_id)
                         if found_models:
