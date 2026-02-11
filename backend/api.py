@@ -434,8 +434,6 @@ async def get_usage_stats():
     cursor = conn.cursor()
     cursor.execute("SELECT SUM(tokens_used), SUM(seconds_used) FROM encuestas")
     res = cursor.fetchone()
-    conn.close()
-    
     total_tokens = res[0] or 0
     total_seconds = res[1] or 0
     
