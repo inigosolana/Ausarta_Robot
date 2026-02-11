@@ -81,11 +81,15 @@ class RedundantLLMStream(llm.LLMStream):
         conn_options = kwargs.pop('conn_options', None)
         tools = kwargs.pop('tools', None)
         
+        # The base LLMStream.__init__ only takes specific arguments. 
+        # Previous error: unexpected keyword argument 'fnc_ctx'
+        # But it requires 'tools' and 'conn_options'.
+        # We process fnc_ctx to ensure tools are passed if needed, but don't pass fnc_ctx itself to super.
+        
         super().__init__(
             llm=llm_instance, 
             chat_ctx=chat_ctx, 
-            fnc_ctx=fnc_ctx, 
-            conn_options=conn_options, 
+            conn_options=conn_options,
             tools=tools, 
             **kwargs
         )
