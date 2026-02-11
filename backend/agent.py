@@ -74,7 +74,8 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
     return [(c[0], c[1]) for c in candidates]
 
 class RedundantLLMStream(llm.LLMStream):
-    def __init__(self, candidates: list, llm_instance: llm.LLM, chat_ctx: llm.ChatContext, fnc_ctx: llm.FunctionContext = None, parent_agent=None, **kwargs):
+    # Remove strict type hints for livekit classes that might have changed names/locations
+    def __init__(self, candidates: list, llm_instance: llm.LLM, chat_ctx, fnc_ctx=None, parent_agent=None, **kwargs):
         # LLMStream.__init__ signature has come to include various keyword arguments like 'tools' and 'conn_options'
         # We pass appropriate defaults and allow kwargs to pass through any others
         conn_options = kwargs.pop('conn_options', None)
