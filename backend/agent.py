@@ -30,7 +30,7 @@ import livekit.agents
 import livekit.plugins
 print(f"📦 [Versions] livekit-agents: {livekit.agents.__version__} | livekit: {rtc.__version__}")
 
-async def discover_best_llm(google_key, groq_key, preferred_provider="google", preferred_model=None):
+async def discover_best_llm(google_key, groq_key, preferred_provider="google", preferred_model=None, openai_key=None):
     """Consulta en vivo qué modelos están disponibles y elige el orden de prioridad"""
     candidates = []
     
@@ -74,12 +74,39 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google", p
             api_key=groq_key
         ), groq_prio + 1))
 
-    # 3. Ordenar por prioridad calculada
+    # 3. Consultar OpenAI (si hay clave)
+    if openai_key:
+        try:
+            is_openai_pref = preferred_provider == "openai"
+            openai_prio = 1 if is_openai_pref else 5
+            
+            headers = {"Authorization": f"Bearer {openai_key}"}
+            async with aiohttp.ClientSession() as session:
+                async with session.get("https://api.openai.com/v1/models", headers=headers, timeout=3) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        allowed_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
+                        for m in data.get('data', []):
+                            m_id = m.get('id', '')
+                            if any(am in m_id for am in allowed_models):
+                                is_preferred = preferred_model and preferred_model in m_id
+                                priority = 1 if is_preferred else openai_prio
+                                candidates.append((f"OpenAI {m_id}", openai.LLM(model=m_id, api_key=openai_key), priority))
+                    else:
+                        print(f"⚠️ [Discovery] OpenAI respondió con status {resp.status}")
+        except Exception as e:
+            print(f"⚠️ [Discovery] Error consultando OpenAI: {e}")
+
+    # 4. Ordenar por prioridad calculada
     candidates.sort(key=lambda x: x[2])
     
-    # Si el usuario quiere Groq específicamente como proveedor, nos aseguramos de que lidere
+    # Si el usuario quiere un proveedor específico, nos aseguramos de que lidere
     if preferred_provider == "groq":
         candidates.sort(key=lambda x: 0 if "Groq" in x[0] else x[2])
+    elif preferred_provider == "openai":
+        candidates.sort(key=lambda x: 0 if "OpenAI" in x[0] else x[2])
+    elif preferred_provider == "google":
+        candidates.sort(key=lambda x: 0 if "Google" in x[0] else x[2])
     
     return [(c[0], c[1]) for c in candidates]
 
@@ -530,11 +557,14 @@ async def entrypoint(ctx: JobContext):
         # Validar API Keys
         groq_key = os.getenv("GROQ_API_KEY")
         google_key = os.getenv("GOOGLE_API_KEY")
+        openai_key = os.getenv("OPENAI_API_KEY")
         
         if groq_key:
-             print(f"🔑 [Security] GROQ_API_KEY encontrada (termina en ...{groq_key[-4:] if len(groq_key)>4 else '****'})")
+             print(f"🔑 [Security] GROQ_API_KEY encontrada")
         if google_key:
-             print(f"🔑 [Security] GOOGLE_API_KEY encontrada (termina en ...{google_key[-4:] if len(google_key)>4 else '****'})")
+             print(f"🔑 [Security] GOOGLE_API_KEY encontrada")
+        if openai_key:
+             print(f"🔑 [Security] OPENAI_API_KEY encontrada")
 
         print(f"🤖 [Init] Configurando LLM...")
         
@@ -554,16 +584,20 @@ async def entrypoint(ctx: JobContext):
                  print(f"⚠️ [Correction] Añadiendo prefijo 'models/' a {model_name}")
                  model_name = f"models/{model_name}"
         elif provider == "groq":
-            if "gemini" in model_name.lower():
+            if "gemini" in model_name.lower() or "gpt" in model_name.lower():
                  print(f"⚠️ [Correction] Se pidió Groq pero el modelo era '{model_name}'. Forzando 'llama-3.3-70b-versatile'.")
                  model_name = "llama-3.3-70b-versatile"
+        elif provider == "openai":
+            if "gpt" not in model_name.lower():
+                 print(f"⚠️ [Correction] Se pidió OpenAI pero el modelo era '{model_name}'. Forzando 'gpt-4o-mini'.")
+                 model_name = "gpt-4o-mini"
 
         print(f"⚙️ [LLM Config] Final -> Provider: {provider} | Model: {model_name}")
 
         # 2. DESCUBRIMIENTO DINÁMICO (Consulta ultra-rápida antes de elegir)
         # Esto evita silencios porque ya sabemos quién está "vivo" antes de empezar
         print(f"⚙️ [LLM Config] Preferencia -> Provider: {provider} | Model: {model_name}")
-        candidates = await discover_best_llm(google_key, groq_key, preferred_provider=provider, preferred_model=model_name)
+        candidates = await discover_best_llm(google_key, groq_key, preferred_provider=provider, preferred_model=model_name, openai_key=openai_key)
         
         if not candidates:
             print(f"❌ [Error] Ningún motor LLM respondió al pre-check de salud.")
