@@ -197,7 +197,8 @@ class RedundantLLMStream(llm.LLMStream):
                     
                     # Registrar alerta en la BD para que el usuario la vea en el panel
                     try:
-                        log_system_alert("api_limit", f"Cuota agotada en {name}. Saltando a otros proveedores.")
+                        detailed_error = str(e)
+                        log_system_alert("api_limit", f"Fallo 429 en {name}: {detailed_error[:150]}")
                     except:
                         pass
                     

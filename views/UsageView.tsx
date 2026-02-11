@@ -142,7 +142,7 @@ const UsageView: React.FC = () => {
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-2">
                                             <div className={`w-2 h-2 rounded-full ${stat.llm_model.includes('Google') ? 'bg-blue-400' :
-                                                    stat.llm_model.includes('Groq') ? 'bg-orange-400' : 'bg-green-400'
+                                                stat.llm_model.includes('Groq') ? 'bg-orange-400' : 'bg-green-400'
                                                 }`}></div>
                                             <span className="text-sm font-bold text-gray-900">{stat.llm_model}</span>
                                         </div>
@@ -213,16 +213,23 @@ const UsageView: React.FC = () => {
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-2">
                                         <span className="w-5 h-5 bg-black rounded flex items-center justify-center text-[10px] text-white font-bold">O</span>
-                                        <span className="font-bold text-gray-900">OpenAI (GPT)</span>
+                                        <span className="font-bold text-gray-900">OpenAI Quota (TPM)</span>
                                     </div>
                                     <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase">Live</span>
                                 </div>
-                                <div className="space-y-2">
-                                    <div className="text-sm text-gray-700 font-medium">{liveLimits.openai.info}</div>
-                                    <div className="text-xs text-gray-500">Modelos: {liveLimits.openai.model}</div>
-                                    <div className="mt-4 p-2 bg-green-50 rounded border border-green-100 flex items-center gap-2">
-                                        <Zap size={14} className="text-green-500" />
-                                        <span className="text-[10px] text-green-700">OpenAI proporciona cuotas basadas en Tier de facturación.</span>
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-gray-500">TPM Restante:</span>
+                                        <span className="font-mono font-bold text-green-600">
+                                            {liveLimits.openai.tokens_remaining ? Number(liveLimits.openai.tokens_remaining).toLocaleString() : '---'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-gray-500">RPM Restante:</span>
+                                        <span className="font-mono font-bold text-gray-700">{liveLimits.openai.requests_remaining || '---'}</span>
+                                    </div>
+                                    <div className="p-2 bg-green-50 rounded border border-green-100 text-[9px] text-green-700">
+                                        {liveLimits.openai.info}
                                     </div>
                                 </div>
                             </div>
@@ -258,6 +265,35 @@ const UsageView: React.FC = () => {
                                     >
                                         🔍 Diagnosticar Modelos Disponibles
                                     </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {liveLimits.elevenlabs && liveLimits.elevenlabs.active && (
+                            <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <Volume2 size={16} className="text-purple-600" />
+                                        <span className="font-bold text-gray-900">ElevenLabs Characters</span>
+                                    </div>
+                                    <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold uppercase">Live</span>
+                                </div>
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-gray-500">Sobrante:</span>
+                                        <span className="font-mono font-bold text-purple-600">
+                                            {Number(liveLimits.elevenlabs.characters_remaining).toLocaleString()}
+                                        </span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                                        <div
+                                            className="bg-purple-600 h-1.5 transition-all"
+                                            style={{ width: `${(liveLimits.elevenlabs.characters_remaining / liveLimits.elevenlabs.characters_limit) * 100}%` }}
+                                        ></div>
+                                    </div>
+                                    <div className="text-[9px] text-gray-400">
+                                        Total del Plan: {Number(liveLimits.elevenlabs.characters_limit).toLocaleString()} chars
+                                    </div>
                                 </div>
                             </div>
                         )}

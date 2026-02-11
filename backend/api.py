@@ -474,27 +474,25 @@ async def get_ai_limits():
     """Consulta en tiempo real los límites de los proveedores configurados"""
     results = {}
     
-    # 1. Groq
+    # 1. Groq - Hacemos un minirequest de 1 token para forzar headers de límite
     groq_key = os.getenv("GROQ_API_KEY")
     if groq_key:
         try:
             async with aiohttp.ClientSession() as session:
-                # Una petición simple a modelos nos da los headers de rate limit
-                async with session.get(
-                    "https://api.groq.com/openai/v1/models", 
+                async with session.post(
+                    "https://api.groq.com/openai/v1/chat/completions", 
                     headers={"Authorization": f"Bearer {groq_key}"},
+                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
                     timeout=5
                 ) as resp:
-                    if resp.status == 200:
-                        results["groq"] = {
-                            "active": True,
-                            "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
-                            "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
-                            "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
-                            "reset_tokens": resp.headers.get("x-ratelimit-reset-tokens"),
-                        }
-                    else:
-                        results["groq"] = {"active": False, "error": f"HTTP {resp.status}"}
+                    results["groq"] = {
+                        "active": resp.status == 200 or resp.status == 429,
+                        "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
+                        "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
+                        "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
+                        "reset_tokens": resp.headers.get("x-ratelimit-reset-tokens"),
+                        "status": resp.status
+                    }
         except Exception as e:
             results["groq"] = {"active": False, "error": str(e)}
 
@@ -503,8 +501,8 @@ async def get_ai_limits():
     if google_key:
         results["google"] = {
             "active": True,
-            "info": "Consumo gestionado en Google Cloud Console",
-            "model": "gemini-1.5-flash (Standard Tier)"
+            "info": "Tier Standard (Gratis): 15 RPM / 1M TPM",
+            "model": "gemini-1.5-flash"
         }
 
     # 3. OpenAI
@@ -512,21 +510,38 @@ async def get_ai_limits():
     if openai_key:
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    "https://api.openai.com/v1/models", 
+                async with session.post(
+                    "https://api.openai.com/v1/chat/completions", 
                     headers={"Authorization": f"Bearer {openai_key}"},
+                    json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
                     timeout=5
                 ) as resp:
-                    if resp.status == 200:
-                        results["openai"] = {
-                            "active": True,
-                            "info": "Balance y Usage disponibles en OpenAI Dashboard",
-                            "model": "gpt-4o / gpt-4o-mini"
-                        }
-                    else:
-                        results["openai"] = {"active": False, "error": f"HTTP {resp.status}"}
+                    results["openai"] = {
+                        "active": resp.status == 200 or resp.status == 429,
+                        "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
+                        "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
+                        "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
+                        "info": "Límites dinámicos basados en Tier (1-5)",
+                        "status": resp.status
+                    }
         except Exception as e:
             results["openai"] = {"active": False, "error": str(e)}
+
+    # 4. ElevenLabs (Si se usa)
+    el_key = os.getenv("ELEVENLABS_API_KEY")
+    if el_key:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get("https://api.elevenlabs.io/v1/user/subscription", headers={"xi-api-key": el_key}, timeout=5) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results["elevenlabs"] = {
+                            "active": True,
+                            "characters_remaining": data.get("character_limit", 0) - data.get("character_count", 0),
+                            "characters_limit": data.get("character_limit"),
+                            "reset_date": data.get("next_character_count_reset_unix")
+                        }
+        except: pass
 
     return results
 
