@@ -74,9 +74,20 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
     return [(c[0], c[1]) for c in candidates]
 
 class RedundantLLMStream(llm.LLMStream):
-    def __init__(self, candidates: list, llm_instance: llm.LLM, chat_ctx: llm.ChatContext, fnc_ctx: llm.FunctionContext = None, parent_agent=None):
-        # LLMStream.__init__ signature: (self, llm: LLM, chat_ctx: ChatContext, *, fnc_ctx: FunctionContext | None, conn_options: APIConnectOptions | None)
-        super().__init__(llm=llm_instance, chat_ctx=chat_ctx, fnc_ctx=fnc_ctx, conn_options=None)
+    def __init__(self, candidates: list, llm_instance: llm.LLM, chat_ctx: llm.ChatContext, fnc_ctx: llm.FunctionContext = None, parent_agent=None, **kwargs):
+        # LLMStream.__init__ signature has come to include various keyword arguments like 'tools' and 'conn_options'
+        # We pass appropriate defaults and allow kwargs to pass through any others
+        conn_options = kwargs.pop('conn_options', None)
+        tools = kwargs.pop('tools', None)
+        
+        super().__init__(
+            llm=llm_instance, 
+            chat_ctx=chat_ctx, 
+            fnc_ctx=fnc_ctx, 
+            conn_options=conn_options, 
+            tools=tools, 
+            **kwargs
+        )
         
         self._candidates = candidates # Lista de (nombre, factory_fn)
         self._current_idx = 0
