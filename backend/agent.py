@@ -422,6 +422,11 @@ class DefaultAgent(Agent):
         if hasattr(self, 'full_transcript'):
             transcript = self.full_transcript
 
+        # Si es un rechazo, marcarlo internamente
+        if status == 'rejected_opt_out':
+            self.last_status = 'rejected_opt_out'
+            print(f"❌ [Tool] Marcando encuesta como rechazada (opt-out)")
+        
         return await self.helper_save_survey(
             id_encuesta=id_encuesta,
             nota_comercial=nota_comercial,
