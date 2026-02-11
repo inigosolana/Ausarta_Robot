@@ -35,7 +35,6 @@ services:
       - ausarta-network
     volumes:
       - sqlite-data:/app/data
-      - ./backend:/app # HOT RELOAD: cambios en vivo sin reconstruir
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8001/" ]
       interval: 30s
