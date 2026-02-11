@@ -30,7 +30,7 @@ import livekit.agents
 import livekit.plugins
 print(f"📦 [Versions] livekit-agents: {livekit.agents.__version__} | livekit: {rtc.__version__}")
 
-async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
+async def discover_best_llm(google_key, groq_key, preferred_provider="google", preferred_model=None):
     """Consulta en vivo qué modelos están disponibles y elige el orden de prioridad"""
     candidates = []
     
@@ -45,9 +45,15 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
                         data = await resp.json()
                         for m in data.get('models', []):
                             name = m.get('name', '')
-                            # Solo modelos gratuitos de flash que sirven para chat
+                            # Solo modelos flash que sirven para chat
                             if 'flash' in name.lower() and 'generateContent' in m.get('supportedGenerationMethods', []):
-                                candidates.append((f"Google {name}", google.LLM(model=name, api_key=google_key), 1))
+                                # Evitar modelos experimentales (como 2.5-flash) si no son el preferido
+                                is_preferred = preferred_model and preferred_model in name
+                                if "2.5" in name and not is_preferred:
+                                    priority = 10
+                                else:
+                                    priority = 1 if is_preferred else 2
+                                candidates.append((f"Google {name}", google.LLM(model=name, api_key=google_key), priority))
                     elif resp.status == 429:
                         print("⚠️ [Discovery] Google está en Rate Limit (429). Prioridad bajada.")
         except Exception as e:
@@ -55,25 +61,26 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
 
     # 2. Añadir Groq (si hay clave)
     if groq_key:
-        # Groq suele ser más estable en latencia pero tiene límites diarios
+        is_groq_pref = preferred_provider == "groq"
+        groq_prio = 1 if is_groq_pref else 3
         candidates.append(("Groq Llama 3.3", openai.LLM(
             model="llama-3.3-70b-versatile", 
             base_url="https://api.groq.com/openai/v1", 
             api_key=groq_key
-        ), 2))
+        ), groq_prio))
         candidates.append(("Groq Mixtral", openai.LLM(
             model="mixtral-8x7b-32768", 
             base_url="https://api.groq.com/openai/v1", 
             api_key=groq_key
-        ), 3))
+        ), groq_prio + 1))
 
-    # 3. Ordenar: El usuario manda, pero si el preferido falló en el check, el otro sube
+    # 3. Ordenar por prioridad calculada
+    candidates.sort(key=lambda x: x[2])
+    
+    # Si el usuario quiere Groq específicamente como proveedor, nos aseguramos de que lidere
     if preferred_provider == "groq":
         candidates.sort(key=lambda x: 0 if "Groq" in x[0] else x[2])
-    else:
-        # Si Google dio 429 arriba, candidates ya vendrá filtrado o vacío
-        candidates.sort(key=lambda x: x[2])
-        
+    
     return [(c[0], c[1]) for c in candidates]
 
 class RedundantLLMStream(llm.LLMStream):
@@ -551,7 +558,7 @@ async def entrypoint(ctx: JobContext):
         # 2. DESCUBRIMIENTO DINÁMICO (Consulta ultra-rápida antes de elegir)
         # Esto evita silencios porque ya sabemos quién está "vivo" antes de empezar
         print(f"⚙️ [LLM Config] Preferencia -> Provider: {provider} | Model: {model_name}")
-        candidates = await discover_best_llm(google_key, groq_key, preferred_provider=provider)
+        candidates = await discover_best_llm(google_key, groq_key, preferred_provider=provider, preferred_model=model_name)
         
         if not candidates:
             print(f"❌ [Error] Ningún motor LLM respondió al pre-check de salud.")
