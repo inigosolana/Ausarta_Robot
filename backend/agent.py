@@ -83,48 +83,36 @@ class RedundantLLMStream(llm.LLMStream):
         if self._parent_agent and self._candidates:
             self._parent_agent.active_llm_model = self._candidates[0][0]
 
-    async def _handle_fallback(self):
-        """Intenta saltar al siguiente candidato disponible"""
-        self._current_idx += 1
-        if self._current_idx < len(self._candidates):
+    async def _run(self):
+        """Implements the logic to iterate through candidates with fallback"""
+        last_exception = None
+        while self._current_idx < len(self._candidates):
             name, fn = self._candidates[self._current_idx]
-            print(f"🔄 [Redundancy] Reintentando con candidato #{self._current_idx + 1}: {name}...")
+            
             if self._parent_agent:
                 self._parent_agent.active_llm_model = name
+                
             try:
-                self._current_stream = fn()
-                return True
+                # Create the stream for the current candidate
+                # fn is a factory lambda that returns the stream
+                stream = fn()
+                
+                async for chunk in stream:
+                    yield chunk
+                
+                # If we finish successfully, stop trying others
+                return
+
             except Exception as e:
-                print(f"⚠️ [Redundancy] {name} también falló de inicio: {e}")
-                return await self._handle_fallback()
-        return False
-
-    async def __anext__(self):
-        if self._current_stream is None:
-            if self._current_idx < len(self._candidates):
-                name, fn = self._candidates[self._current_idx]
-                try:
-                    self._current_stream = fn()
-                except Exception as e:
-                    print(f"⚠️ [Redundancy] Fallo inicial en {name}: {e}")
-                    if await self._handle_fallback():
-                        return await self.__anext__()
-                    raise e
-            else:
-                raise StopAsyncIteration
-
-        try:
-            return await self._current_stream.__anext__()
-        except StopAsyncIteration:
-            raise StopAsyncIteration
-        except Exception as e:
-            print(f"🚨 [Redundancy] Error durante el stream: {e}")
-            if await self._handle_fallback():
-                return await self.__anext__()
-            raise e
-
-    def __aiter__(self):
-        return self
+                print(f"⚠️ [Redundancy] Fallo en {name}: {e}")
+                last_exception = e
+                self._current_idx += 1
+                
+        # If we exhaust all candidates
+        if last_exception:
+            raise last_exception
+        else:
+            raise Exception("No candidates available")
 
 class RedundantLLM(llm.LLM):
     """Encadena múltiples candidatos (Google 2.0 -> Google 1.5 -> Groq Llama -> Groq Mixtral)"""
@@ -413,8 +401,17 @@ async def entrypoint(ctx: JobContext):
         if survey_id:
             # Si el agente marcó completada explícitamente, o si tenemos AL MENOS UNA NOTA guardada
             has_data = any(v is not None for v in agent_instance.current_scores.values())
-            # Si hay datos O texto pendiente rescatado, intentamos marcar como completada
-            final_status = 'completed' if (agent_instance.is_completed or has_data or agent_instance.pending_client_text) else None
+            
+            # Lógica de estado final:
+            # 1. Si el agente cerró explícitamente -> completed
+            # 2. Si no cerró pero hay datos parciales -> incomplete
+            # 3. Si no hay nada -> None (o lo que tuviera antes)
+            if agent_instance.is_completed:
+                final_status = 'completed'
+            elif has_data or agent_instance.pending_client_text:
+                final_status = 'incomplete'
+            else:
+                final_status = None
             
             print(f"🔍 [Cleanup] Preparando guardado. has_data={has_data}, pending={bool(agent_instance.pending_client_text)}, final_status={final_status}")
             

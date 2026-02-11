@@ -46,6 +46,8 @@ class FinEncuesta(BaseModel):
     nota_instalador: Union[int, str, None] = None
     nota_rapidez: Union[int, str, None] = None
     comentarios: Optional[str] = "Sin comentarios"
+    llm_model: Optional[str] = "Desconocido"
+    status: Optional[str] = "pending"
 
 class ColgarLlamada(BaseModel):
     nombre_sala: str 
@@ -106,11 +108,13 @@ async def guardar_encuesta(datos: FinEncuesta):
 
         if not id_final: return {"status": "error", "msg": "No ID found"}
 
+        is_done = 1 if datos.status == 'completed' else 0
+        
         cursor.execute(
             """UPDATE encuestas 
-               SET puntuacion_comercial=%s, puntuacion_instalador=%s, puntuacion_rapidez=%s, comentarios=%s, completada=1
+               SET puntuacion_comercial=%s, puntuacion_instalador=%s, puntuacion_rapidez=%s, comentarios=%s, completada=%s, llm_model=%s
                WHERE id=%s""",
-            (clean_nota(datos.nota_comercial), clean_nota(datos.nota_instalador), clean_nota(datos.nota_rapidez), datos.comentarios, id_final)
+            (clean_nota(datos.nota_comercial), clean_nota(datos.nota_instalador), clean_nota(datos.nota_rapidez), datos.comentarios, is_done, datos.llm_model, id_final)
         )
         conn.commit()
         print(f"🚀 ¡EXITO! Datos guardados en ficha {id_final}.")
