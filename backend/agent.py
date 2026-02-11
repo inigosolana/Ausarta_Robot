@@ -175,22 +175,30 @@ class RedundantLLM(llm.LLM):
 
     def chat(self, chat_ctx, fnc_ctx=None, **kwargs):
         print(f"🛠️ [LLM Debug] Chat started. Keys in kwargs: {list(kwargs.keys())}")
-        # Extract arguments required by LLMStream
-        # Note: 'chat' method signature is typically (chat_ctx, fnc_ctx, **kwargs)
         
+        # Extraction of tools for candidates
+        # Many plugins expect 'tools' instead of 'fnc_ctx' in their chat() method
+        tools = kwargs.pop('tools', None)
+        if tools is None and fnc_ctx:
+            # Try to extract tools from fnc_ctx
+            if hasattr(fnc_ctx, 'ai_callable'): # Newer version
+                tools = [v for k, v in fnc_ctx.ai_callable.items()]
+            elif hasattr(fnc_ctx, 'tools'): # Older or different version
+                tools = fnc_ctx.tools
+
         # Creamos factories para que cada reintento sea una petición fresca
-        # We must pass all arguments to the underlying plugin chat method
-        chat_kwargs = {"chat_ctx": chat_ctx, "fnc_ctx": fnc_ctx}
+        # We must pass arguments recognized by the underlying plugins
+        chat_kwargs = {"chat_ctx": chat_ctx, "tools": tools}
         chat_kwargs.update(kwargs)
 
         factories = []
         for name, plugin in self._candidates:
             if plugin:
                 # Create a closure that captures the plugin properly
-                factories.append((name, lambda p=plugin: p.chat(**chat_kwargs)))
+                # Wrap in a helper to avoid late binding issues if needed (though p=plugin handles it)
+                factories.append((name, lambda p=plugin, args=dict(chat_kwargs): p.chat(**args)))
                 
         # We must pass 'self' (the LLM instance) to the stream
-        # And pass required args and extra kwargs (like conn_options) to RedundantLLMStream
         return RedundantLLMStream(
             factories, 
             llm_instance=self, 
