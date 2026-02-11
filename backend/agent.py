@@ -159,13 +159,14 @@ class RedundantLLM(llm.LLM):
                 factories.append((name, lambda p=plugin: p.chat(**chat_kwargs)))
                 
         # We must pass 'self' (the LLM instance) to the stream
-        # And pass required args to RedundantLLMStream
+        # And pass required args and extra kwargs (like conn_options) to RedundantLLMStream
         return RedundantLLMStream(
             factories, 
             llm_instance=self, 
             chat_ctx=chat_ctx, 
             fnc_ctx=fnc_ctx,
-            parent_agent=self._parent_agent
+            parent_agent=self._parent_agent,
+            **kwargs
         )
 
 from livekit.plugins import (
