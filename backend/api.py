@@ -40,6 +40,7 @@ def init_database():
     conn = get_db_connection()
     cursor = conn.cursor()
     
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS encuestas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             telefono VARCHAR(20) NOT NULL,
@@ -554,7 +555,7 @@ async def get_ai_limits():
         except: pass
 
     # 5. ElevenLabs
-    el_key = os.getenv("ELEVENLABS_API_KEY")
+    el_key = os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")
     if el_key:
         try:
             async with aiohttp.ClientSession() as session:
@@ -568,6 +569,15 @@ async def get_ai_limits():
                             "status": "active"
                         }
         except: pass
+
+    # 6. Cartesia
+    cartesia_key = os.getenv("CARTESIA_API_KEY")
+    if cartesia_key:
+        results["cartesia"] = {
+            "active": True,
+            "info": "Consultar créditos en Dashboard de Cartesia",
+            "dashboard_url": "https://play.cartesia.ai/settings"
+        }
 
     return results
 
@@ -1529,6 +1539,7 @@ async def process_campaigns():
 @app.on_event("startup")
 async def startup_event():
     print("🌅 Iniciando API y Background Workers...")
+    init_database()
     asyncio.create_task(process_campaigns())
 
 if __name__ == "__main__":

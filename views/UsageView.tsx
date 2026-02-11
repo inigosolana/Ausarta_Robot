@@ -273,10 +273,11 @@ const UsageView: React.FC = () => {
                                         <Volume2 size={16} className="text-purple-600" />
                                         <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">ElevenLabs</span>
                                     </div>
+                                    <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold">Characters</span>
                                 </div>
                                 <div className="space-y-3">
                                     <div className="flex justify-between items-center text-xs">
-                                        <span className="text-gray-500">Chars Sobrantes:</span>
+                                        <span className="text-gray-500">Sobrantes:</span>
                                         <span className="font-mono font-bold text-purple-600">
                                             {Number(liveLimits.elevenlabs.characters_remaining).toLocaleString()}
                                         </span>
@@ -288,8 +289,33 @@ const UsageView: React.FC = () => {
                                         ></div>
                                     </div>
                                     <div className="text-[10px] text-gray-400 text-center font-medium italic">
-                                        {Math.round((liveLimits.elevenlabs.characters_remaining / 1000) * 10) / 10}k / {Number(liveLimits.elevenlabs.characters_limit / 1000).toLocaleString()}k chars
+                                        Total: {Number(liveLimits.elevenlabs.characters_limit / 1000).toLocaleString()}k chars
                                     </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Cartesia Card */}
+                        {liveLimits.cartesia && liveLimits.cartesia.active && (
+                            <div className="p-5 rounded-xl bg-gray-50 border border-gray-100">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 bg-purple-500 rounded flex items-center justify-center text-[10px] text-white font-bold">C</div>
+                                        <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">Cartesia TTS</span>
+                                    </div>
+                                </div>
+                                <div className="space-y-3">
+                                    <div className="text-xs text-gray-700 font-medium">
+                                        {liveLimits.cartesia.info}
+                                    </div>
+                                    <a
+                                        href={liveLimits.cartesia.dashboard_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block w-full text-center py-2 bg-white border border-purple-200 text-[10px] text-purple-600 font-bold rounded hover:bg-purple-50 transition-colors uppercase"
+                                    >
+                                        Ver Saldo Cartesia
+                                    </a>
                                 </div>
                             </div>
                         )}
@@ -314,7 +340,7 @@ const UsageView: React.FC = () => {
                                         }}
                                         className="w-full py-2 border border-blue-200 text-[10px] text-blue-600 font-bold rounded hover:bg-blue-50 transition-colors uppercase"
                                     >
-                                        Diagnosticar
+                                        Diagnostar Modelos
                                     </button>
                                 </div>
                             </div>

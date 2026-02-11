@@ -89,14 +89,17 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google", p
                     if resp.status == 200:
                         data = await resp.json()
                         allowed_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
+                        excluded_keywords = ["tts", "audio", "realtime", "transcribe", "search", "preview-202"]
                         found_models = []
                         for m in data.get('data', []):
                             m_id = m.get('id', '')
+                            # Debe contener un modelo permitido y NO contener palabras prohibidas
                             if any(am in m_id for am in allowed_models):
-                                is_preferred = preferred_model and preferred_model in m_id
-                                priority = 1 if (is_preferred or is_openai_pref) else 10
-                                candidates.append((f"OpenAI {m_id}", openai.LLM(model=m_id, api_key=openai_key), priority))
-                                found_models.append(m_id)
+                                if not any(ex in m_id.lower() for ex in excluded_keywords):
+                                    is_preferred = preferred_model and preferred_model in m_id
+                                    priority = 1 if (is_preferred or is_openai_pref) else 10
+                                    candidates.append((f"OpenAI {m_id}", openai.LLM(model=m_id, api_key=openai_key), priority))
+                                    found_models.append(m_id)
                         if found_models:
                             print(f"✅ [Discovery] OpenAI modelos encontrados: {found_models}")
                     else:
