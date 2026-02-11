@@ -122,15 +122,19 @@ class RedundantLLMStream(llm.LLMStream):
                 return
 
             except Exception as e:
+                import traceback
+                error_trace = traceback.format_exc()
                 print(f"⚠️ [Redundancy] Fallo en {name}: {e}")
+                print(f"🔍 [Traceback] {name} detail:\n{error_trace}")
                 last_exception = e
                 self._current_idx += 1
                 
         # If we exhaust all candidates
         if last_exception:
+            print(f"🚨 [Redundancy] Todos los candidatos fallaron. Último error: {last_exception}")
             raise last_exception
         else:
-            raise Exception("No candidates available")
+            raise Exception("No candidates available: candidates list was empty or all plugins were None")
 
 class RedundantLLM(llm.LLM):
     """Encadena múltiples candidatos (Google 2.0 -> Google 1.5 -> Groq Llama -> Groq Mixtral)"""
