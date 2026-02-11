@@ -74,11 +74,11 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
     return [(c[0], c[1]) for c in candidates]
 
 class RedundantLLMStream(llm.LLMStream):
-    def __init__(self, candidates: list, parent_agent=None):
-        # LLMStream.__init__ expects (chat_ctx: ChatContext). 
-        # Since we are wrapping other streams, we can pass None or a dummy context.
-        # The error said "takes 2 positional arguments but 3 were given", meaning (self, arg1) is expected, but we gave (self, arg1, arg2).
-        super().__init__(chat_ctx=None)
+    def __init__(self, candidates: list, llm_instance: llm.LLM, parent_agent=None):
+        # LLMStream requires 'llm' instance and optional 'chat_ctx'
+        # TypeError: LLMStream.__init__() missing 1 required positional argument: 'llm'
+        super().__init__(llm=llm_instance, chat_ctx=None)
+        
         self._candidates = candidates # Lista de (nombre, factory_fn)
         self._current_idx = 0
         self._current_stream = None
@@ -129,8 +129,11 @@ class RedundantLLM(llm.LLM):
         factories = []
         for name, plugin in self._candidates:
             if plugin:
+                # Create a closure that captures the plugin properly
                 factories.append((name, lambda p=plugin: p.chat(**kwargs)))
-        return RedundantLLMStream(factories, parent_agent=self._parent_agent)
+                
+        # We must pass 'self' (the LLM instance) to the stream
+        return RedundantLLMStream(factories, llm_instance=self, parent_agent=self._parent_agent)
 
 from livekit.plugins import (
     silero,
