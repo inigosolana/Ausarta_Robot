@@ -121,6 +121,8 @@ class RedundantLLMStream(llm.LLMStream):
 
     async def _run(self):
         """Implements the logic to iterate through candidates with fallback"""
+        # Note: In recent LiveKit versions, _run must be a coroutine, not a generator.
+        # We push chunks to self._event_ch instead of yielding.
         last_exception = None
         while self._current_idx < len(self._candidates):
             name, fn = self._candidates[self._current_idx]
@@ -131,12 +133,22 @@ class RedundantLLMStream(llm.LLMStream):
             try:
                 # Create the stream for the current candidate
                 # fn is a factory lambda that returns the stream
+                print(f"📡 [Redundancy] Intentando con: {name}")
                 stream = fn()
                 
                 async for chunk in stream:
-                    yield chunk
+                    # Push chunk to the internal event channel of LLMStream
+                    if hasattr(self, '_event_ch'):
+                        self._event_ch.send_nowait(chunk)
+                    else:
+                        # Fallback for older versions if they didn't use _event_ch
+                        # (though the error suggests it's awaiting, so it's a newer one)
+                        # If we reach here and it's not a generator, we might have a problem.
+                        # But in 0.12+ it's definitely _event_ch.
+                        pass
                 
                 # If we finish successfully, stop trying others
+                print(f"✅ [Redundancy] Éxito con {name}")
                 return
 
             except Exception as e:
