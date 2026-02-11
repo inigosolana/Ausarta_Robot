@@ -26,6 +26,9 @@ from livekit.agents import (
     utils,
     llm,
 )
+import livekit.agents
+import livekit.plugins
+print(f"📦 [Versions] livekit-agents: {livekit.agents.__version__} | livekit: {rtc.__version__}")
 
 async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
     """Consulta en vivo qué modelos están disponibles y elige el orden de prioridad"""
@@ -76,6 +79,11 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google"):
 class RedundantLLMStream(llm.LLMStream):
     # Remove strict type hints for livekit classes that might have changed names/locations
     def __init__(self, candidates: list, llm_instance: llm.LLM, chat_ctx, fnc_ctx=None, parent_agent=None, **kwargs):
+        # DEBUG: Log exact arguments to catch signature changes
+        print(f"🛠️ [Stream Debug] Init RedundantLLMStream")
+        print(f"   - Candidates count: {len(candidates)}")
+        print(f"   - Extra kwargs keys: {list(kwargs.keys())}")
+        
         # LLMStream.__init__ signature has come to include various keyword arguments like 'tools' and 'conn_options'
         # We pass appropriate defaults and allow kwargs to pass through any others
         conn_options = kwargs.pop('conn_options', None)
@@ -86,12 +94,23 @@ class RedundantLLMStream(llm.LLMStream):
         # But it requires 'tools' and 'conn_options'.
         # We process fnc_ctx to ensure tools are passed if needed, but don't pass fnc_ctx itself to super.
         
-        super().__init__(
-            llm=llm_instance, 
-            chat_ctx=chat_ctx, 
-            conn_options=conn_options,
-            tools=tools
-        )
+        try:
+            super().__init__(
+                llm=llm_instance, 
+                chat_ctx=chat_ctx, 
+                conn_options=conn_options,
+                tools=tools
+            )
+            print("   ✅ Base LLMStream init success")
+        except TypeError as te:
+            print(f"❌ [Stream Debug] FAILED to init Base LLMStream: {te}")
+            # Si falla el init por argumentos, imprimimos TODO lo que tenemos para depurar
+            import inspect
+            try:
+                sig = inspect.signature(llm.LLMStream.__init__)
+                print(f"🔍 [Info] Firma esperada del constructor: {sig}")
+            except: pass
+            raise te
         
         self._candidates = candidates # Lista de (nombre, factory_fn)
         self._current_idx = 0
@@ -143,6 +162,7 @@ class RedundantLLM(llm.LLM):
         self._parent_agent = parent_agent
 
     def chat(self, chat_ctx, fnc_ctx=None, **kwargs):
+        print(f"🛠️ [LLM Debug] Chat started. Keys in kwargs: {list(kwargs.keys())}")
         # Extract arguments required by LLMStream
         # Note: 'chat' method signature is typically (chat_ctx, fnc_ctx, **kwargs)
         
