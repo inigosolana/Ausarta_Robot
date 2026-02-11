@@ -244,10 +244,19 @@ const DashboardView: React.FC = () => {
                                         {call.scores?.comercial ?? '-'} / {call.scores?.instalador ?? '-'} / {call.scores?.rapidez ?? '-'}
                                     </td>
                                     <td className="px-3 py-2 whitespace-nowrap text-sm">
-                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${call.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                                            }`}>
-                                            {call.status === 'completed' ? 'Completada' : 'Pendiente'}
-                                        </span>
+                                        {(() => {
+                                            switch (call.status) {
+                                                case 'completed':
+                                                    return <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-green-100 text-green-700 uppercase">Completada</span>;
+                                                case 'incomplete':
+                                                    return <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 uppercase">Incompleta</span>;
+                                                case 'rejected_opt_out':
+                                                    return <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-red-100 text-red-700 uppercase">Rechazada</span>;
+                                                case 'failed':
+                                                default:
+                                                    return <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700 uppercase">Intento Fallido</span>;
+                                            }
+                                        })()}
                                     </td>
                                 </tr>
                             ))}

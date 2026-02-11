@@ -7,6 +7,7 @@ interface SurveyResult {
     telefono: string;
     fecha: string;
     completada: number;
+    status: string | null;
     puntuacion_comercial: number | null;
     puntuacion_instalador: number | null;
     puntuacion_rapidez: number | null;
@@ -145,27 +146,14 @@ const ResultsView: React.FC = () => {
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         {(() => {
-                                            const scores = [row.puntuacion_comercial, row.puntuacion_instalador, row.puntuacion_rapidez];
-                                            const count = scores.filter(s => s !== null).length;
-
-                                            if (row.completada && count === 3) {
-                                                return (
-                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">
-                                                        Full Success
-                                                    </span>
-                                                );
-                                            } else if (row.completada && count > 0) {
-                                                return (
-                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                                                        Partial ({count}/3)
-                                                    </span>
-                                                );
+                                            if (row.status === 'completed') {
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200 uppercase">Completada</span>;
+                                            } else if (row.status === 'incomplete') {
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200 uppercase">Incompleta</span>;
+                                            } else if (row.status === 'rejected_opt_out') {
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200 uppercase" title="Rechazada (No reintentar)">Rechazada</span>;
                                             } else {
-                                                return (
-                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-100">
-                                                        Failed / Unreached
-                                                    </span>
-                                                );
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-500 border border-gray-200 uppercase" title="Fallo / No respondió (Se reintentará)">Rechazada (Intento)</span>;
                                             }
                                         })()}
                                     </td>

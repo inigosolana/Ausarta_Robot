@@ -40,12 +40,12 @@ def init_database():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('''
         CREATE TABLE IF NOT EXISTS encuestas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             telefono VARCHAR(20) NOT NULL,
             fecha DATETIME NOT NULL,
             completada INTEGER DEFAULT 0,
+            status VARCHAR(20) DEFAULT 'unreached', -- unreached, incomplete, completed, rejected_opt_out
             puntuacion_comercial INTEGER DEFAULT NULL,
             puntuacion_instalador INTEGER DEFAULT NULL,
             puntuacion_rapidez INTEGER DEFAULT NULL,
@@ -53,11 +53,20 @@ def init_database():
             transcription TEXT DEFAULT NULL,
             tokens_used INTEGER DEFAULT 0,
             seconds_used INTEGER DEFAULT 0,
+            llm_model VARCHAR(50) DEFAULT NULL,
             nombre_cliente VARCHAR(100) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # Migración: Añadir columnas si no existen
+    try:
+        cursor.execute("ALTER TABLE encuestas ADD COLUMN status VARCHAR(20) DEFAULT 'unreached'")
+    except: pass
+    try:
+        cursor.execute("ALTER TABLE encuestas ADD COLUMN llm_model VARCHAR(50) DEFAULT NULL")
+    except: pass
     
     # NEW: Campaigns Tables
     cursor.execute('''
@@ -401,11 +410,11 @@ async def get_recent_calls():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, telefono, fecha, completada,
+        SELECT id, telefono, fecha, completada, status,
                puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez,
                comentarios, transcription, llm_model
         FROM encuestas 
-        ORDER BY fecha DESC LIMIT 10
+        ORDER BY fecha DESC LIMIT 15
     """)
     rows = cursor.fetchall()
     conn.close()
@@ -417,7 +426,7 @@ async def get_recent_calls():
             "id": row['id'],
             "phone": row['telefono'],
             "date": f"{row['fecha']}Z" if not str(row['fecha']).endswith('Z') else row['fecha'],
-            "status": "completed" if row['completada'] else "pending",
+            "status": row['status'] if row['status'] else ("completed" if row['completada'] else "pending"),
             "scores": {
                 "comercial": row['puntuacion_comercial'],
                 "instalador": row['puntuacion_instalador'],
@@ -1231,15 +1240,18 @@ async def guardar_encuesta(datos: FinEncuesta):
             params.append(datos.llm_model)
 
         if datos.status is not None:
-            # Si status es 'completed', marcamos la encuesta como completada en BD
-            final_complete = 1 if datos.status == 'completed' else 0
+            # Actualizamos columna status en encuestas
+            update_fields.append("status = ?")
+            params.append(datos.status)
             
-            # Mapeamos status del agente a status del lead
-            lead_status = 'completed' if datos.status == 'completed' else 'failed'
-            if datos.status == 'failed': lead_status = 'failed'
-
+            # completada es 1 solo si terminó todas las preguntas
+            final_complete = 1 if datos.status == 'completed' else 0
             update_fields.append("completada = ?")
             params.append(final_complete)
+            
+            # Mapeamos status del agente a status del lead
+            # El motor de campañas (reintentos) solo busca 'failed' o 'pending'
+            lead_status = datos.status
             
             # Actualizar lead asociado a este call_id
             cursor.execute("UPDATE campaign_leads SET status = ? WHERE call_id = ?", (lead_status, id_final))
@@ -1248,6 +1260,7 @@ async def guardar_encuesta(datos: FinEncuesta):
             cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))
             phone_res = cursor.fetchone()
             if phone_res:
+                cursor.execute("UPDATE campaign_leads SET phone_number = ? WHERE call_id = ?", (phone_res[0], id_final))
                 cursor.execute("UPDATE campaign_leads SET status = ? WHERE phone_number = ? AND status IN ('pending', 'called')", (lead_status, phone_res[0]))
         update_fields.append("updated_at = CURRENT_TIMESTAMP")
 

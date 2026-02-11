@@ -349,9 +349,11 @@ class DefaultAgent(Agent):
         self.total_tokens = 0
         self.start_time = asyncio.get_event_loop().time()
         
+        self.last_status = None
+        
         super().__init__(instructions=instructions)
 
-    async def helper_save_survey(self, id_encuesta, nota_comercial=None, nota_instalador=None, nota_rapidez=None, comentarios=None, transcript=None, status="pending"):
+    async def helper_save_survey(self, id_encuesta, nota_comercial=None, nota_instalador=None, nota_rapidez=None, comentarios=None, transcript=None, status=None):
         """Helper para guardar encuesta con métricas de uso"""
         
         # Actualizar cache local
@@ -359,6 +361,7 @@ class DefaultAgent(Agent):
         if nota_instalador: self.current_scores["nota_instalador"] = nota_instalador
         if nota_rapidez: self.current_scores["nota_rapidez"] = nota_rapidez
         if comentarios: self.current_scores["comentarios"] = comentarios
+        if status: self.last_status = status
         if status == 'completed': self.is_completed = True
 
         seconds_used = int(asyncio.get_event_loop().time() - self.start_time)
@@ -404,7 +407,8 @@ class DefaultAgent(Agent):
         """
         Guarda los datos de la encuesta. 
         LLAMAR SIEMPRE que se obtenga una nota o comentario.
-        Si el cliente dice que NO quiere dejar comentario, llamar con status='completed'.
+        - Si el cliente dice NO quiere hacer la encuesta (opt-out): status='rejected_opt_out'.
+        - Si el cliente termina o no quiere dejar comentarios al final: status='completed'.
         """
         print(f"🛠️ [Tool] Ejecutando guardar_encuesta: ID={id_encuesta}, status={status}")
         context.disallow_interruptions()
@@ -484,7 +488,10 @@ async def entrypoint(ctx: JobContext):
        - Comercial (0-10) -> guardar_encuesta(nota_comercial=X)
        - Instalador (0-10) -> guardar_encuesta(nota_instalador=X)
        - Rapidez (0-10) -> guardar_encuesta(nota_rapidez=X)
-    6. Al final, despídete y usa `finalizar_llamada`.
+    6. RECHAZO INICIAL: Si el usuario dice que NO tiene un minuto o no quiere hacer la encuesta al principio:
+       - Llama a `guardar_encuesta(status='rejected_opt_out')`.
+       - Despídete cortésmente y finaliza.
+    7. Al final, despídete y usa `finalizar_llamada`.
     """
 
     # Extraer ID de la sala
@@ -540,10 +547,12 @@ async def entrypoint(ctx: JobContext):
             # 3. Si no hay nada -> None (o lo que tuviera antes)
             if agent_instance.is_completed:
                 final_status = 'completed'
-            elif has_data or agent_instance.pending_client_text:
+            elif agent_instance.last_status == 'rejected_opt_out':
+                final_status = 'rejected_opt_out'
+            elif has_data or (agent_instance.full_transcript and "Cliente:" in agent_instance.full_transcript):
                 final_status = 'incomplete'
             else:
-                final_status = None
+                final_status = 'failed' 
             
             print(f"🔍 [Cleanup] Preparando guardado. has_data={has_data}, pending={bool(agent_instance.pending_client_text)}, final_status={final_status}")
             
