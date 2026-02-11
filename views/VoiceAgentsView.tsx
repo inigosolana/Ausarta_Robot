@@ -325,14 +325,16 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
                 value={aiConfig.llm_provider}
                 onChange={(e) => {
                   const newProvider = e.target.value;
-                  const defaultModel = newProvider === 'google' ? 'models/gemini-2.0-flash' : 'llama-3.3-70b-versatile';
+                  let defaultModel = 'llama-3.3-70b-versatile';
+                  if (newProvider === 'google') defaultModel = 'models/gemini-1.5-flash';
+                  if (newProvider === 'openai') defaultModel = 'gpt-4o';
                   setAiConfig({ ...aiConfig, llm_provider: newProvider, llm_model: defaultModel });
                 }}
                 className="w-full px-3 py-2 border rounded-lg bg-gray-50"
               >
-                <option value="groq">Groq (Llama 3)</option>
+                <option value="openai">OpenAI (GPT-4o)</option>
+                <option value="groq">Groq (Llama 3, Mixtral)</option>
                 <option value="google">Google Gemini</option>
-                <option value="openai">OpenAI (GPT-4)</option>
               </select>
             </div>
             <div>
@@ -342,21 +344,23 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
                 onChange={(e) => setAiConfig({ ...aiConfig, llm_model: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg bg-white"
               >
-                {aiConfig.llm_provider === 'google' ? (
+                {aiConfig.llm_provider === 'openai' ? (
+                  <>
+                    <option value="gpt-4o">GPT-4o (High Intelligence)</option>
+                    <option value="gpt-4o-mini">GPT-4o mini (Fast & Cheap)</option>
+                    <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                  </>
+                ) : aiConfig.llm_provider === 'google' ? (
                   <>
                     <option value="models/gemini-2.0-flash">Gemini 2.0 Flash</option>
                     <option value="models/gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
-                    <option value="models/gemini-2.5-flash">Gemini 2.5 Flash</option>
-                    <option value="models/gemini-2.5-pro">Gemini 2.5 Pro</option>
-                  </>
-                ) : aiConfig.llm_provider === 'groq' ? (
-                  <>
-                    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
-                    <option value="llama3-70b-8192">llama3-70b-8192</option>
-                    <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                    <option value="models/gemini-1.5-flash">Gemini 1.5 Flash</option>
                   </>
                 ) : (
-                  <option value={aiConfig.llm_model}>{aiConfig.llm_model}</option>
+                  <>
+                    <option value="llama-3.3-70b-versatile">Llama 3.3 70B</option>
+                    <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
+                  </>
                 )}
               </select>
             </div>
