@@ -90,8 +90,7 @@ class RedundantLLMStream(llm.LLMStream):
             llm=llm_instance, 
             chat_ctx=chat_ctx, 
             conn_options=conn_options,
-            tools=tools, 
-            **kwargs
+            tools=tools
         )
         
         self._candidates = candidates # Lista de (nombre, factory_fn)
