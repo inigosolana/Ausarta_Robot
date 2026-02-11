@@ -149,6 +149,26 @@ const UsageView: React.FC = () => {
                             </div>
                         )}
 
+                        {liveLimits.openai && liveLimits.openai.active && (
+                            <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-5 h-5 bg-black rounded flex items-center justify-center text-[10px] text-white font-bold">O</span>
+                                        <span className="font-bold text-gray-900">OpenAI (GPT)</span>
+                                    </div>
+                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase">Live</span>
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="text-sm text-gray-700 font-medium">{liveLimits.openai.info}</div>
+                                    <div className="text-xs text-gray-500">Modelos: {liveLimits.openai.model}</div>
+                                    <div className="mt-4 p-2 bg-green-50 rounded border border-green-100 flex items-center gap-2">
+                                        <Zap size={14} className="text-green-500" />
+                                        <span className="text-[10px] text-green-700">OpenAI proporciona cuotas basadas en Tier de facturación.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {liveLimits.google && liveLimits.google.active && (
                             <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
                                 <div className="flex items-center justify-between mb-4">
@@ -198,6 +218,10 @@ const UsageView: React.FC = () => {
                             The metrics above show usage consumed by this agent. To see your exact remaining balance, credits, or rate limits, please visit your provider's dashboard:
                         </p>
                         <div className="flex flex-wrap gap-3">
+                            <a href="https://platform.openai.com/usage" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors">
+                                <span className="w-4 h-4 bg-black rounded-full flex items-center justify-center text-[8px] text-white font-bold">O</span>
+                                OpenAI Usage
+                            </a>
                             <a href="https://console.groq.com/settings/limits" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors">
                                 <img src="https://groq.com/favicon.ico" className="w-4 h-4 rounded-sm" onError={(e) => e.currentTarget.src = ''} />
                                 Groq Limits

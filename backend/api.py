@@ -494,6 +494,27 @@ async def get_ai_limits():
             "model": "gemini-1.5-flash (Standard Tier)"
         }
 
+    # 3. OpenAI
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    "https://api.openai.com/v1/models", 
+                    headers={"Authorization": f"Bearer {openai_key}"},
+                    timeout=5
+                ) as resp:
+                    if resp.status == 200:
+                        results["openai"] = {
+                            "active": True,
+                            "info": "Balance y Usage disponibles en OpenAI Dashboard",
+                            "model": "gpt-4o / gpt-4o-mini"
+                        }
+                    else:
+                        results["openai"] = {"active": False, "error": f"HTTP {resp.status}"}
+        except Exception as e:
+            results["openai"] = {"active": False, "error": str(e)}
+
     return results
 
 @app.get("/api/ai/diagnose-google")
