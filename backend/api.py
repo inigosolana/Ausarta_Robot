@@ -439,10 +439,23 @@ async def get_usage_stats():
     total_tokens = res[0] or 0
     total_seconds = res[1] or 0
     
+    # Breakdown por modelo
+    cursor.execute("""
+        SELECT llm_model, SUM(tokens_used) as tokens, COUNT(*) as calls, SUM(seconds_used) as seconds
+        FROM encuestas 
+        WHERE llm_model IS NOT NULL
+        GROUP BY llm_model
+    """)
+    rows = cursor.fetchall()
+    per_model = [dict(r) for r in rows]
+    
+    conn.close()
+    
     return {
         "total_tokens": total_tokens,
         "total_minutes": round(total_seconds / 60.0, 2),
-        "total_seconds": total_seconds
+        "total_seconds": total_seconds,
+        "per_model_stats": per_model
     }
 
 @app.get("/api/dashboard/integrations")

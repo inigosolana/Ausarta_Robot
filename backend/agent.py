@@ -195,6 +195,12 @@ class RedundantLLMStream(llm.LLMStream):
                     provider = name.split(' ')[0] if ' ' in name else name
                     print(f"🚀 [Redundancy] Cuota agotada para {provider}. Saltando candidatos similares...")
                     
+                    # Registrar alerta en la BD para que el usuario la vea en el panel
+                    try:
+                        log_system_alert("api_limit", f"Cuota agotada en {name}. Saltando a otros proveedores.")
+                    except:
+                        pass
+                    
                     # Avanzamos el índice hasta encontrar un proveedor distinto
                     self._current_idx += 1
                     while self._current_idx < len(self._candidates):

@@ -85,26 +85,85 @@ const UsageView: React.FC = () => {
             </div>
 
             {/* Real usage metrics */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center">
-                    <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-4">
-                        <BarChart3 size={32} />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center">
+                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-3">
+                        <BarChart3 size={24} />
                     </div>
-                    <div className="text-3xl font-black text-gray-900">
+                    <div className="text-2xl font-black text-gray-900">
                         {usage?.total_tokens?.toLocaleString() || 0}
                     </div>
-                    <h4 className="text-lg font-bold text-gray-800">Tokens Consumidos</h4>
-                    <p className="text-sm text-gray-500 mt-1">Total acumulado de tokens LLM (Llama 3.3)</p>
+                    <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Total Tokens</h4>
                 </div>
-                <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center">
-                    <div className="w-16 h-16 bg-purple-50 text-purple-600 rounded-full flex items-center justify-center mb-4">
-                        <Volume2 size={32} />
+
+                <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center">
+                    <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-full flex items-center justify-center mb-3">
+                        <Volume2 size={24} />
                     </div>
-                    <div className="text-3xl font-black text-gray-900">
+                    <div className="text-2xl font-black text-gray-900">
                         {usage?.total_minutes?.toLocaleString() || 0}
                     </div>
-                    <h4 className="text-lg font-bold text-gray-800">Minutos Generados</h4>
-                    <p className="text-sm text-gray-500 mt-1">Tiempo total de interacción de voz (TTS/STT)</p>
+                    <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Minutos Totales</h4>
+                </div>
+
+                <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center">
+                    <div className="w-12 h-12 bg-orange-50 text-orange-600 rounded-full flex items-center justify-center mb-3">
+                        <Zap size={24} />
+                    </div>
+                    <div className="text-2xl font-black text-gray-900">
+                        {usage?.per_model_stats?.length || 0}
+                    </div>
+                    <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Modelos Usados</h4>
+                </div>
+            </div>
+
+            {/* Breakdown per Model Table */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                    <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                        <Cpu size={16} className="text-blue-500" />
+                        DESGLOSE DE CONSUMO POR MODELO
+                    </h3>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="bg-white text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-50">
+                                <th className="px-6 py-3">Modelo / Motor</th>
+                                <th className="px-6 py-3">Llamadas</th>
+                                <th className="px-6 py-3">Tokens Totales</th>
+                                <th className="px-6 py-3">Tiempo (Min)</th>
+                                <th className="px-6 py-3">Eficiencia (T/min)</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {usage?.per_model_stats?.map((stat: any, idx: number) => (
+                                <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-2 h-2 rounded-full ${stat.llm_model.includes('Google') ? 'bg-blue-400' :
+                                                    stat.llm_model.includes('Groq') ? 'bg-orange-400' : 'bg-green-400'
+                                                }`}></div>
+                                            <span className="text-sm font-bold text-gray-900">{stat.llm_model}</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-gray-600 font-mono">{stat.calls}</td>
+                                    <td className="px-6 py-4 text-sm font-bold text-blue-600 font-mono">{stat.tokens.toLocaleString()}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-600 font-mono">{Math.round(stat.seconds / 60)} min</td>
+                                    <td className="px-6 py-4 text-sm text-gray-400 font-mono">
+                                        {stat.seconds > 0 ? Math.round(stat.tokens / (stat.seconds / 60)) : 0}
+                                    </td>
+                                </tr>
+                            ))}
+                            {(!usage?.per_model_stats || usage.per_model_stats.length === 0) && (
+                                <tr>
+                                    <td colSpan={5} className="px-6 py-8 text-center text-gray-400 text-sm italic">
+                                        No hay datos de consumo detallados todavía.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
