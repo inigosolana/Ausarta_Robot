@@ -34,7 +34,6 @@ services:
     networks:
       - ausarta-network
     volumes:
-      - ./backend:/app
       - sqlite-data:/app/data
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8001/" ]
