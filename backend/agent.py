@@ -129,8 +129,8 @@ class RedundantLLMStream(llm.LLMStream):
     async def _run(self):
         """Implements the logic to iterate through candidates with fallback"""
         # Note: In recent LiveKit versions, _run must be a coroutine, not a generator.
-        # We push chunks to self._event_ch instead of yielding.
         last_exception = None
+        
         while self._current_idx < len(self._candidates):
             name, fn = self._candidates[self._current_idx]
             
@@ -138,40 +138,45 @@ class RedundantLLMStream(llm.LLMStream):
                 self._parent_agent.active_llm_model = name
                 
             try:
-                # Create the stream for the current candidate
-                # fn is a factory lambda that returns the stream
                 print(f"📡 [Redundancy] Intentando con: {name}")
                 stream = fn()
                 
                 async for chunk in stream:
-                    # Push chunk to the internal event channel of LLMStream
                     if hasattr(self, '_event_ch'):
                         self._event_ch.send_nowait(chunk)
-                    else:
-                        # Fallback for older versions if they didn't use _event_ch
-                        # (though the error suggests it's awaiting, so it's a newer one)
-                        # If we reach here and it's not a generator, we might have a problem.
-                        # But in 0.12+ it's definitely _event_ch.
-                        pass
                 
-                # If we finish successfully, stop trying others
                 print(f"✅ [Redundancy] Éxito con {name}")
                 return
 
             except Exception as e:
-                import traceback
-                error_trace = traceback.format_exc()
+                error_msg = str(e).lower()
                 print(f"⚠️ [Redundancy] Fallo en {name}: {e}")
-                print(f"🔍 [Traceback] {name} detail:\n{error_trace}")
                 last_exception = e
-                self._current_idx += 1
                 
-        # If we exhaust all candidates
+                # Si es un error de cuota (429), saltamos TODOS los demás modelos de este proveedor
+                # porque lo más seguro es que compartan la misma API Key y cuota.
+                is_rate_limit = "429" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg
+                
+                if is_rate_limit:
+                    provider = name.split(' ')[0] if ' ' in name else name
+                    print(f"🚀 [Redundancy] Cuota agotada para {provider}. Saltando candidatos similares...")
+                    
+                    # Avanzamos el índice hasta encontrar un proveedor distinto
+                    self._current_idx += 1
+                    while self._current_idx < len(self._candidates):
+                        next_name, _ = self._candidates[self._current_idx]
+                        if not next_name.startswith(provider):
+                            break
+                        print(f"⏭️ [Redundancy] Saltando {next_name} por fallo de cuota en {provider}")
+                        self._current_idx += 1
+                else:
+                    self._current_idx += 1
+                
         if last_exception:
             print(f"🚨 [Redundancy] Todos los candidatos fallaron. Último error: {last_exception}")
             raise last_exception
         else:
-            raise Exception("No candidates available: candidates list was empty or all plugins were None")
+            raise Exception("No candidates available")
 
 class RedundantLLM(llm.LLM):
     """Encadena múltiples candidatos (Google 2.0 -> Google 1.5 -> Groq Llama -> Groq Mixtral)"""
