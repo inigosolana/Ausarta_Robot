@@ -1052,15 +1052,54 @@ async def make_outbound_call(call_request: OutboundCallRequest):
     try:
         print(f"📞 Iniciando llamada outbound a {call_request.phoneNumber} ({call_request.customerName or 'Anon'})")
         
-        # 1. Crear ficha en DB
+        # 1. Crear ficha en DB (o verificar si ya existe)
         id_ficha = None
         try:
-            resp_inicio = await iniciar_encuesta(InicioEncuesta(
-                telefono=call_request.phoneNumber,
-                nombre_cliente=call_request.customerName
-            ))
-            id_ficha = resp_inicio["id"]
-            print(f"✅ Ficha creada con ID: {id_ficha}")
+            # Verificar si ya existe una encuesta para este número
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, status,completada 
+                FROM encuestas 
+                WHERE telefono = ? 
+                ORDER BY fecha DESC 
+                LIMIT 1
+            """, (call_request.phoneNumber,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                existing_id, existing_status, existing_completada = existing
+                
+                # PREVENIR reintentos si está completada o rechazada
+                if existing_status == 'completed' or existing_completada == 1:
+                    conn.close()
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Esta encuesta ya fue completada (ID: {existing_id}). No se permiten reintentos."
+                    )
+                elif existing_status == 'rejected_opt_out':
+                    conn.close()
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"El cliente rechazó la encuesta (ID: {existing_id}). No se permiten reintentos."
+                    )
+                elif existing_status in ['incomplete', 'unreached', None]:
+                    # PERMITIR reintento - usar el ID existente
+                    print(f"⚠️ Reintentando llamada con ID existente: {existing_id} (status: {existing_status})")
+                    id_ficha = existing_id
+                    conn.close()
+            
+            # Si no hay ID reutilizable, crear nueva ficha
+            if not id_ficha:
+                conn.close()
+                resp_inicio = await iniciar_encuesta(InicioEncuesta(
+                    telefono=call_request.phoneNumber,
+                    nombre_cliente=call_request.customerName
+                ))
+                id_ficha = resp_inicio["id"]
+                print(f"✅ Ficha creada con ID: {id_ficha}")
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error creando ficha: {e}")
         

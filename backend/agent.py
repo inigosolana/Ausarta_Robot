@@ -544,18 +544,26 @@ async def entrypoint(ctx: JobContext):
             # Si el agente marcó completada explícitamente, o si tenemos AL MENOS UNA NOTA guardada
             has_data = any(v is not None for v in agent_instance.current_scores.values())
             
-            # Lógica de estado final:
-            # 1. Si el agente cerró explícitamente -> completed
-            # 2. Si no cerró pero hay datos parciales -> incomplete
-            # 3. Si no hay nada -> None (o lo que tuviera antes)
-            if agent_instance.is_completed:
-                final_status = 'completed'
-            elif agent_instance.last_status == 'rejected_opt_out':
+            # Lógica de estado final mejorada:
+            # 1. REJECTED: Usuario rechazó explícitamente (opt-out) -> NO permitir reintentos
+            # 2. COMPLETED: Encuesta completada -> NO permitir reintentos
+            # 3. INCOMPLETE: Responde pero no completa -> SÍ permitir reintentos
+            # 4. UNREACHED: No responde / buzón de voz -> SÍ permitir reintentos
+            
+            if agent_instance.last_status == 'rejected_opt_out':
                 final_status = 'rejected_opt_out'
+                print(f"❌ [Status] RECHAZADA - Usuario optó out explícitamente")
+            elif agent_instance.is_completed:
+                final_status = 'completed'
+                print(f"✅ [Status] COMPLETADA - Encuesta finalizada correctamente")
             elif has_data or (agent_instance.full_transcript and "Cliente:" in agent_instance.full_transcript):
+                # Hay interacción pero no se completó
                 final_status = 'incomplete'
+                print(f"⚠️ [Status] INCOMPLETA - Hay datos parciales, permitir reintento")
             else:
-                final_status = 'failed' 
+                # No hubo interacción (probablemente buzón de voz o no contestó)
+                final_status = 'unreached'
+                print(f"📵 [Status] NO ALCANZADA - Sin interacción, permitir reintento")
             
             print(f"🔍 [Cleanup] Preparando guardado. has_data={has_data}, pending={bool(agent_instance.pending_client_text)}, final_status={final_status}")
             
