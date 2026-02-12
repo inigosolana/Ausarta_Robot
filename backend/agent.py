@@ -518,17 +518,18 @@ async def entrypoint(ctx: JobContext):
        - **INMEDIATAMENTE** llama a `finalizar_llamada()` para colgar
        - NO esperes más respuestas
     
-    7. FINALIZACIÓN (MUY IMPORTANTE):
+    7. FINALIZACIÓN (MUY IMPORTANTE - ACTÚA RÁPIDO):
        - Después de recibir las 3 notas (comercial, instalador, rapidez), pregunta: "¿Desea dejar algún comentario adicional?"
        - Si dice SÍ: 
          * Escucha el comentario completo
-         * Llama a `guardar_encuesta(comentarios="...")`
-         * Di "Gracias por su comentario. Muchas gracias por su tiempo, que tenga un buen día"
-         * Llama a `finalizar_llamada()`
-       - Si dice NO o cualquier negativa: 
-         * NO insistas
-         * Di "Perfecto. Muchas gracias por su tiempo, que tenga un buen día"
-         * Llama a `finalizar_llamada()`
+         * Llama a `guardar_encuesta(comentarios="...", status='completed')`
+         * Di SOLO "Gracias, que tenga un buen día" (corto y directo)
+         * Llama a `finalizar_llamada()` INMEDIATAMENTE
+       - Si dice NO o cualquier negativa (no, nada, eso es todo, etc): 
+         * PRIMERO llama a `guardar_encuesta(status='completed')` para asegurar que se guarden los datos
+         * Di SOLO "Perfecto, muchas gracias, adiós" (MÁXIMO 5 palabras)
+         * Llama a `finalizar_llamada()` INMEDIATAMENTE sin esperar respuesta
+         * NO digas frases largas, NO insistas, NO preguntes nada más
        - **SIEMPRE** finaliza con `finalizar_llamada()` después de despedirte.
        - NO esperes más respuestas después de `finalizar_llamada()`.
     """

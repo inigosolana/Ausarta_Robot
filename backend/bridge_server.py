@@ -128,10 +128,10 @@ async def guardar_encuesta(datos: FinEncuesta):
 async def colgar(datos: ColgarLlamada):
     print(f"✂️  Petición de colgar recibida.")
     
-    # --- PAUSA DRAMÁTICA ---
-    # Esperamos 3 segundos para que la IA termine de decir "Adiós"
-    print("⏳ Esperando 3 segundos para dar tiempo a la despedida...")
-    await asyncio.sleep(2) 
+    # --- PAUSA BREVE ---
+    # Esperamos 1 segundo para que la IA termine de decir "Adiós"
+    print("⏳ Esperando 1 segundo para dar tiempo a la despedida...")
+    await asyncio.sleep(1) 
     # -----------------------
 
     lkapi = api.LiveKitAPI(

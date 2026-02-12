@@ -14,6 +14,7 @@ interface Campaign {
   called_leads?: number;
   failed_leads?: number;
   pending_leads?: number;
+  retries_count?: number;
 }
 
 interface Lead {
@@ -357,11 +358,27 @@ export function CampaignsView() {
       pending: 'bg-yellow-100 text-yellow-800',
       running: 'bg-blue-100 text-blue-800',
       completed: 'bg-green-100 text-green-800',
-      paused: 'bg-gray-100 text-gray-800'
+      paused: 'bg-gray-100 text-gray-800',
+      called: 'bg-blue-100 text-blue-800',
+      failed: 'bg-red-100 text-red-800',
+      unreached: 'bg-orange-100 text-orange-800',
+      incomplete: 'bg-purple-100 text-purple-800',
+      rejected_opt_out: 'bg-red-200 text-red-900',
+    };
+    const labels: Record<string, string> = {
+      unreached: 'No Contestó',
+      incomplete: 'Incompleta',
+      rejected_opt_out: 'Rechazada',
+      called: 'Llamada',
+      completed: 'Completada',
+      failed: 'Fallida',
+      pending: 'Pendiente',
+      running: 'En Curso',
+      paused: 'Pausada',
     };
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${colors[status] || colors.pending}`}>
-        {status}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[status] || colors.pending}`}>
+        {labels[status] || status}
       </span>
     );
   };
@@ -371,30 +388,30 @@ export function CampaignsView() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <button onClick={() => setShowDetails(false)} className="text-gray-500 hover:text-gray-900 flex items-center gap-2">
-            ← Back to Campaigns
+            ← Volver a Campañas
           </button>
           <div className='flex gap-2'>
             <button
               onClick={() => loadCampaignDetails(selectedCampaign)}
               className="px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 text-sm flex items-center gap-1"
             >
-              <History className="w-4 h-4" /> Refresh
+              <History className="w-4 h-4" /> Actualizar
             </button>
 
             <button
               onClick={() => openEditModal(selectedCampaign)}
               className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm flex items-center gap-1"
             >
-              <Edit2 className="w-4 h-4" /> Edit
+              <Edit2 className="w-4 h-4" /> Editar
             </button>
 
-            {/* Retry Button - Only show if there are failed leads */}
+            {/* Retry Button - Only show if there are failed/unreached/incomplete leads */}
             {(selectedCampaign.failed_leads || 0) > 0 && (
               <button
                 onClick={() => handleRetryFailed(selectedCampaign.id)}
                 className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 text-sm flex items-center gap-1"
               >
-                <Clock className="w-4 h-4" /> Retry Failed Calls ({selectedCampaign.failed_leads})
+                <Clock className="w-4 h-4" /> Reintentar Fallidas ({selectedCampaign.failed_leads})
               </button>
             )}
 
@@ -402,7 +419,7 @@ export function CampaignsView() {
               onClick={() => handleDelete(selectedCampaign.id)}
               className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm flex items-center gap-1"
             >
-              <Trash2 className="w-4 h-4" /> Delete Campaign
+              <Trash2 className="w-4 h-4" /> Eliminar Campaña
             </button>
           </div>
         </div>
@@ -414,32 +431,32 @@ export function CampaignsView() {
             <p className="text-2xl font-bold text-blue-900">{selectedCampaign.total_leads || 0}</p>
           </div>
           <div className="bg-green-50 p-4 rounded-xl border border-green-100">
-            <p className="text-green-600 text-xs font-semibold uppercase">Called</p>
+            <p className="text-green-600 text-xs font-semibold uppercase">Llamadas</p>
             <p className="text-2xl font-bold text-green-900">{selectedCampaign.called_leads || 0}</p>
           </div>
           <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
-            <p className="text-yellow-600 text-xs font-semibold uppercase">Pending</p>
+            <p className="text-yellow-600 text-xs font-semibold uppercase">Pendientes</p>
             <p className="text-2xl font-bold text-yellow-900">{selectedCampaign.pending_leads || 0}</p>
           </div>
           <div className="bg-red-50 p-4 rounded-xl border border-red-100">
-            <p className="text-red-600 text-xs font-semibold uppercase">Failed</p>
+            <p className="text-red-600 text-xs font-semibold uppercase">Fallidas</p>
             <p className="text-2xl font-bold text-red-900">{selectedCampaign.failed_leads || 0}</p>
           </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-            <h3 className="font-semibold text-gray-900">Call Log & Results</h3>
+            <h3 className="font-semibold text-gray-900">Registro de Llamadas y Resultados</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Phone</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status & Retries</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase w-1/3">Notes & Transcription</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Last Update</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Teléfono</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Estado e Intentos</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase w-1/3">Notas y Transcripción</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Última Actualización</th>
+                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -448,22 +465,31 @@ export function CampaignsView() {
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{lead.phone_number}</td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1 items-start">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize 
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium 
                                         ${lead.status === 'completed' ? 'bg-green-100 text-green-800' :
                             lead.status === 'called' ? 'bg-blue-100 text-blue-800' :
-                              lead.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
-                          {lead.status}
+                              lead.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                lead.status === 'unreached' ? 'bg-orange-100 text-orange-800' :
+                                  lead.status === 'incomplete' ? 'bg-purple-100 text-purple-800' :
+                                    lead.status === 'rejected_opt_out' ? 'bg-red-200 text-red-900' : 'bg-gray-100 text-gray-800'}`}>
+                          {lead.status === 'unreached' ? 'No Contestó' :
+                            lead.status === 'rejected_opt_out' ? 'Rechazada' :
+                              lead.status === 'completed' ? 'Completada' :
+                                lead.status === 'incomplete' ? 'Incompleta' :
+                                  lead.status === 'failed' ? 'Fallida' :
+                                    lead.status === 'called' ? 'Llamada' :
+                                      lead.status === 'pending' ? 'Pendiente' : lead.status}
                         </span>
                         {/* Mostrar intentos si > 0 */}
                         {(lead.retries_attempted || 0) > 0 && (
                           <span className="text-xs text-gray-500 flex items-center gap-1">
-                            <History className="w-3 h-3" /> Retry: {lead.retries_attempted}
+                            <History className="w-3 h-3" /> Intento: {lead.retries_attempted}
                           </span>
                         )}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
-                      {lead.status === 'completed' ? (
+                      {(lead.puntuacion_comercial != null || lead.puntuacion_instalador != null || lead.puntuacion_rapidez != null) ? (
                         <div className="space-y-1">
                           <div className="flex gap-2">
                             <span className="font-bold text-gray-900">C:</span>{lead.puntuacion_comercial ?? '-'}
@@ -475,13 +501,17 @@ export function CampaignsView() {
                           )}
                         </div>
                       ) : (
-                        <span className="text-gray-400 italic">No valid data yet</span>
+                        <span className="text-gray-400 italic">
+                          {lead.status === 'unreached' ? 'No contestó' :
+                            lead.status === 'rejected_opt_out' ? 'Cliente rechazó la encuesta' :
+                              lead.status === 'pending' ? 'Esperando...' : 'Sin datos todavía'}
+                        </span>
                       )}
 
                       {/* Transcription Preview (Collapsible better, but inline for now) */}
                       {lead.transcription_preview && (
                         <details className="mt-1">
-                          <summary className="text-xs text-blue-500 cursor-pointer hover:underline">View Transcript</summary>
+                          <summary className="text-xs text-blue-500 cursor-pointer hover:underline">Ver Transcripción</summary>
                           <p className="text-xs text-gray-500 mt-1 p-2 bg-gray-50 rounded whitespace-pre-wrap max-h-32 overflow-y-auto">
                             {lead.transcription_preview}
                           </p>
@@ -492,21 +522,33 @@ export function CampaignsView() {
                       {lead.updated_at ? new Date(lead.updated_at).toLocaleString() : '-'}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      {lead.status === 'failed' && (
-                        <button
-                          onClick={() => handleRetryLead(lead.id)}
-                          className="text-xs bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-2 py-1 rounded shadow-sm inline-flex items-center gap-1 transition-all"
-                          title="Retry this lead immediately"
-                        >
-                          <Clock className="w-3 h-3 text-blue-500" />
-                          Retry
-                        </button>
+                      {['failed', 'unreached', 'incomplete'].includes(lead.status) && (() => {
+                        const maxRetries = (selectedCampaign as any).retries_count || 3;
+                        const remaining = Math.max(0, maxRetries - (lead.retries_attempted || 0));
+                        return remaining > 0 ? (
+                          <button
+                            onClick={() => handleRetryLead(lead.id)}
+                            className="text-xs bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-2 py-1 rounded shadow-sm inline-flex items-center gap-1 transition-all"
+                            title="Reintentar esta llamada"
+                          >
+                            <Clock className="w-3 h-3 text-blue-500" />
+                            Reintentar ({remaining} restantes)
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">Sin reintentos</span>
+                        );
+                      })()}
+                      {lead.status === 'completed' && (
+                        <span className="text-xs text-green-600">✓ Completada</span>
+                      )}
+                      {lead.status === 'rejected_opt_out' && (
+                        <span className="text-xs text-red-600">✗ Rechazada</span>
                       )}
                     </td>
                   </tr>
                 ))}
                 {campaignLeads.length === 0 && (
-                  <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-500">No leads found</td></tr>
+                  <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">No hay leads en esta campaña</td></tr>
                 )}
               </tbody>
             </table>

@@ -808,7 +808,7 @@ async def get_campaigns():
             c.*,
             (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id) as total_leads,
             (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('called', 'completed')) as called_leads,
-            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'failed') as failed_leads,
+            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('failed', 'unreached', 'incomplete')) as failed_leads,
             (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'pending') as pending_leads
         FROM campaigns c
         ORDER BY c.created_at DESC
@@ -863,7 +863,7 @@ async def get_campaign(campaign_id: int):
             c.*,
             (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id) as total_leads,
             (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('called', 'completed')) as called_leads,
-            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'failed') as failed_leads,
+            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('failed', 'unreached', 'incomplete')) as failed_leads,
             (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'pending') as pending_leads
         FROM campaigns c
         WHERE c.id = ?
@@ -962,11 +962,11 @@ async def retry_campaign_failed(campaign_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # 1. Resetear leads fallidos a pending
+    # 1. Resetear leads fallidos/unreached/incomplete a pending
     cursor.execute("""
         UPDATE campaign_leads 
         SET status = 'pending', retries_attempted = 0, next_retry_at = NULL
-        WHERE campaign_id = ? AND status = 'failed'
+        WHERE campaign_id = ? AND status IN ('failed', 'unreached', 'incomplete')
     """, (campaign_id,))
     
     count = cursor.rowcount
@@ -1331,9 +1331,9 @@ async def guardar_encuesta(datos: FinEncuesta):
 async def colgar(datos: ColgarLlamada):
     print(f"✂️  Petición de colgar recibida.")
     
-    # Pausa para dar tiempo a la despedida
-    print("⏳ Esperando 3 segundos para dar tiempo a la despedida...")
-    await asyncio.sleep(3.0) 
+    # Pausa breve para dar tiempo a la despedida (reducida para colgar más rápido)
+    print("⏳ Esperando 1 segundo para dar tiempo a la despedida...")
+    await asyncio.sleep(1.0) 
 
     lkapi = api.LiveKitAPI(
         os.getenv("LIVEKIT_URL"),
@@ -1424,17 +1424,47 @@ async def process_campaigns():
             conn.commit()
             
             # --- 1.5 TIMEOUT WATCHDOG (FIX FOR LOST CALLS) ---
-            # Si una lead lleva en 'called' más de 5 minutos, asumimos que no cogió o falló
-            # La marcamos como 'failed' para que el sistema de reintentos la coja de nuevo
-            timeout_threshold = datetime.utcnow() - timedelta(minutes=5)
+            # Si una lead lleva en 'called' más de 3 minutos sin actualización, 
+            # verificamos si hubo interacción real.
+            # - Si la encuesta asociada no tiene transcripción ni datos -> unreached (retryable)
+            # - Si tiene datos parciales -> incomplete (retryable)
+            timeout_threshold = datetime.utcnow() - timedelta(minutes=3)
             cursor.execute("""
-                UPDATE campaign_leads
-                SET status = 'failed'
-                WHERE status = 'called'
-                AND last_call_at <= ?
+                SELECT cl.id, cl.call_id
+                FROM campaign_leads cl
+                WHERE cl.status = 'called'
+                AND cl.last_call_at <= ?
             """, (timeout_threshold,))
-            if cursor.rowcount > 0:
-                print(f"♻️ [Worker] Timeout Watchdog: {cursor.rowcount} llamadas marcadas como failed por timeout (no answer).")
+            stale_leads = cursor.fetchall()
+            
+            for stale in stale_leads:
+                stale_id = stale['id']
+                stale_call_id = stale['call_id']
+                new_status = 'unreached'  # Default: no contestó
+                
+                if stale_call_id:
+                    # Check if there was actual interaction in the encuesta
+                    cursor.execute("""
+                        SELECT transcription, puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez, status
+                        FROM encuestas WHERE id = ?
+                    """, (stale_call_id,))
+                    enc = cursor.fetchone()
+                    if enc:
+                        has_transcript = bool(enc['transcription'] and 'Cliente:' in str(enc['transcription']))
+                        has_scores = any(enc[k] is not None for k in ['puntuacion_comercial', 'puntuacion_instalador', 'puntuacion_rapidez'])
+                        enc_status = enc['status']
+                        
+                        if enc_status in ('completed', 'rejected_opt_out'):
+                            new_status = enc_status
+                        elif has_scores or has_transcript:
+                            new_status = 'incomplete'
+                        else:
+                            new_status = 'unreached'
+                
+                cursor.execute("UPDATE campaign_leads SET status = ? WHERE id = ?", (new_status, stale_id))
+                print(f"♻️ [Worker] Timeout Watchdog: Lead {stale_id} -> {new_status}")
+            
+            if stale_leads:
                 conn.commit()
             
             # --- 2. PROCESAR CAMPAÑAS ACTIVAS (RUNNING) ---
@@ -1452,14 +1482,18 @@ async def process_campaigns():
                 # Buscar leads candidatos:
                 # - PENDING: Nuevos
                 # - FAILED: Para reintentar si no han superado el límite
+                # - UNREACHED: No contestaron, siempre reintentar
+                # - INCOMPLETE: Respondieron pero no completaron, reintentar
                 cursor.execute("""
                     SELECT * FROM campaign_leads 
                     WHERE campaign_id = ? 
                     AND (
                         status = 'pending' 
                         OR (status = 'failed' AND retries_attempted < ?)
+                        OR (status = 'unreached' AND retries_attempted < ?)
+                        OR (status = 'incomplete' AND retries_attempted < ?)
                     )
-                """, (campaign_id, max_retries))
+                """, (campaign_id, max_retries, max_retries, max_retries))
                 
                 potential_leads = cursor.fetchall()
                 leads_to_call = []
@@ -1470,8 +1504,8 @@ async def process_campaigns():
                         leads_to_call.append(lead)
                         continue
                         
-                    # Si es failed, verificar si ya pasó el tiempo de espera (next_retry_at)
-                    if lead['status'] == 'failed':
+                    # Si es failed/unreached/incomplete, verificar si ya pasó el tiempo de espera
+                    if lead['status'] in ('failed', 'unreached', 'incomplete'):
                         next_retry = lead['next_retry_at']
                         if not next_retry:
                             leads_to_call.append(lead) # Si no tiene fecha proxima, reintentar ya
@@ -1552,8 +1586,10 @@ async def process_campaigns():
                         status = 'pending' 
                         OR status = 'called' 
                         OR (status = 'failed' AND retries_attempted < ?)
+                        OR (status = 'unreached' AND retries_attempted < ?)
+                        OR (status = 'incomplete' AND retries_attempted < ?)
                     )
-                """, (campaign_id, max_retries))
+                """, (campaign_id, max_retries, max_retries, max_retries))
                 pending_count = cursor.fetchone()[0]
                 
                 if pending_count == 0:
