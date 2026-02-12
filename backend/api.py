@@ -1557,7 +1557,14 @@ async def process_campaigns():
                             customerName=customer_name,
                             agentName=f"Agent-{agent_id}"
                         )
-                        await make_outbound_call(req)
+                        call_result = await make_outbound_call(req)
+                        
+                        # VINCULAR: Guardar el call_id (encuesta ID) en el lead para que luego
+                        # /guardar-encuesta pueda actualizar el status del lead correctamente
+                        call_id_from_result = call_result.get('callId') if isinstance(call_result, dict) else None
+                        if call_id_from_result:
+                            cursor.execute("UPDATE campaign_leads SET call_id = ? WHERE id = ?", (call_id_from_result, lead_id))
+                            print(f"🔗 [Worker] Lead {lead_id} vinculado a encuesta {call_id_from_result}")
                         
                         # Si SIP OK -> Status 'called'
                         cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE id = ?", (lead_id,))

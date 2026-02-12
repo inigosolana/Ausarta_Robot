@@ -439,9 +439,37 @@ class DefaultAgent(Agent):
 
     @function_tool(name="finalizar_llamada")
     async def _http_tool_finalizar_llamada(
-        self, context: RunContext, nombre_sala: str
+        self, context: RunContext
     ) -> str | None:
-        """Corta la llamada inmediatamente. Usar tras despedirse."""
+        """Corta la llamada inmediatamente. Usar tras despedirse. NO necesita parámetros."""
+        # Auto-detectar sala del contexto
+        nombre_sala = None
+        try:
+            # Acceder al room name desde el agente session
+            if hasattr(context, 'session') and hasattr(context.session, '_room'):
+                nombre_sala = context.session._room.name
+            elif hasattr(self, '_room_name'):
+                nombre_sala = self._room_name
+        except:
+            pass
+        
+        # Fallback: buscar en la BD la última encuesta
+        if not nombre_sala:
+            try:
+                conn_tmp = sqlite3.connect(DB_PATH)
+                cur_tmp = conn_tmp.cursor()
+                cur_tmp.execute("SELECT id FROM encuestas ORDER BY id DESC LIMIT 1")
+                res_tmp = cur_tmp.fetchone()
+                if res_tmp:
+                    nombre_sala = f"encuesta_{res_tmp[0]}"
+                conn_tmp.close()
+            except:
+                pass
+        
+        if not nombre_sala:
+            print("⚠️ [Tool] No se pudo detectar nombre de sala para colgar")
+            return "error: no room name"
+        
         print(f"🛠️ [Tool] Finalizando llamada en sala: {nombre_sala}")
         
         # Marcar como completada para que el cleanup lo detecte
@@ -532,6 +560,7 @@ async def entrypoint(ctx: JobContext):
          * NO digas frases largas, NO insistas, NO preguntes nada más
        - **SIEMPRE** finaliza con `finalizar_llamada()` después de despedirte.
        - NO esperes más respuestas después de `finalizar_llamada()`.
+       - `finalizar_llamada()` NO necesita parámetros, se llama exactamente así: `finalizar_llamada()`
     """
 
     # Extraer ID de la sala
@@ -540,7 +569,7 @@ async def entrypoint(ctx: JobContext):
     match = re.search(r'encuesta_(\d+)', ctx.room.name)
     if match:
         survey_id = int(match.group(1))
-        instructions += f"\n- IMPORTANTE: El ID de esta encuesta es {survey_id}."
+        instructions += f"\n- IMPORTANTE: El ID de esta encuesta es {survey_id}. La sala es '{ctx.room.name}'."
 
     greeting = "Hola, le llamo de Ausarta por el servicio reciente. ¿Tiene un minuto para una encuesta rápida?"
     customer_name = ctx.job.metadata.strip() if ctx.job.metadata else None
@@ -556,6 +585,7 @@ async def entrypoint(ctx: JobContext):
     agent_instance.last_client_text = ""
     agent_instance.pending_client_text = "" # Buffer para lo último dicho (aunque no sea final)
     agent_instance.start_time = asyncio.get_event_loop().time() # Track start time
+    agent_instance._room_name = ctx.room.name  # Para auto-detectar en finalizar_llamada
 
 
     # Sincronización en tiempo real (evita perder datos si cuelgan de golpe)
