@@ -7,7 +7,7 @@ import asyncio
 import traceback
 import re
 from dotenv import load_dotenv
-from livekit import rtc
+from livekit import rtc, api
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -761,6 +761,40 @@ async def entrypoint(ctx: JobContext):
             instructions=f"Saluda ahora mismo diciendo exactamente: '{greeting}'. No uses herramientas.",
             allow_interruptions=True
         )
+
+        # DETECCIÓN DE DESCONEXIÓN: Si el cliente nunca contesta o cuelga antes de responder,
+        # el participante SIP se desconecta. Detectamos esto para cerrar la sala rápido.
+        @ctx.room.on("participant_disconnected")
+        def on_participant_left(participant):
+            identity = participant.identity if hasattr(participant, 'identity') else str(participant)
+            print(f"📵 [Agent] Participante desconectado: {identity}")
+            
+            # Si es el cliente SIP (no el agente mismo), cerrar sala
+            if "Cliente" in str(identity) or "sip" in str(identity).lower():
+                has_interaction = bool(agent_instance.full_transcript and "Cliente:" in agent_instance.full_transcript)
+                
+                if not has_interaction:
+                    print(f"📵 [Agent] Cliente nunca contestó o rechazó la llamada. Cerrando sala en 5s...")
+                    
+                    async def delayed_close():
+                        await asyncio.sleep(5)  # Esperar un momento por si acaso
+                        # Verificar de nuevo que no hubo interacción
+                        if not (agent_instance.full_transcript and "Cliente:" in agent_instance.full_transcript):
+                            print(f"📵 [Agent] Confirmado: sin interacción. Forzando cierre de sala.")
+                            try:
+                                lkapi_close = api.LiveKitAPI(
+                                    os.getenv("LIVEKIT_URL"),
+                                    os.getenv("LIVEKIT_API_KEY"),
+                                    os.getenv("LIVEKIT_API_SECRET"),
+                                )
+                                await lkapi_close.room.delete_room(api.DeleteRoomRequest(room=ctx.room.name))
+                                await lkapi_close.aclose()
+                            except Exception as e:
+                                print(f"⚠️ [Agent] Error cerrando sala: {e}")
+                    
+                    asyncio.create_task(delayed_close())
+                else:
+                    print(f"⚠️ [Agent] Cliente se desconectó pero hubo interacción. Cleanup normal.")
 
         # Eliminamos ruido de fondo para una voz más limpia
         pass

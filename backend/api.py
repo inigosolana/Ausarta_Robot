@@ -1424,11 +1424,11 @@ async def process_campaigns():
             conn.commit()
             
             # --- 1.5 TIMEOUT WATCHDOG (FIX FOR LOST CALLS) ---
-            # Si una lead lleva en 'called' más de 3 minutos sin actualización, 
+            # Si una lead lleva en 'called' más de 90 segundos sin actualización, 
             # verificamos si hubo interacción real.
             # - Si la encuesta asociada no tiene transcripción ni datos -> unreached (retryable)
             # - Si tiene datos parciales -> incomplete (retryable)
-            timeout_threshold = datetime.utcnow() - timedelta(minutes=3)
+            timeout_threshold = datetime.utcnow() - timedelta(seconds=90)
             cursor.execute("""
                 SELECT cl.id, cl.call_id
                 FROM campaign_leads cl
