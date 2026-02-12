@@ -737,6 +737,7 @@ async def entrypoint(ctx: JobContext):
                 if role == "Cliente":
                     agent_instance.interaction_count += 1
                     agent_instance.pending_client_text = "" # Limpiamos buffer
+                    print(f"⏱️ [Perf] Transcripción FINAL recibida: '{transcript.text}'")
                 
                 agent_instance.full_transcript += f"{msg}\n"
                 
@@ -752,6 +753,19 @@ async def entrypoint(ctx: JobContext):
         def on_llm_done(resp):
             if hasattr(resp, 'usage') and resp.usage:
                 agent_instance.total_tokens += getattr(resp.usage, 'total_tokens', 0)
+
+        # DEBUG: Log de herramientas para ver latencia
+        if hasattr(session, 'on'): # Verificar método para evitar crash si librería cambia
+            try:
+                @session.on("function_call_started")
+                def on_tool_start(fn_call):
+                    print(f"⏱️ [Perf] LLM decidió llamar a herramienta: {fn_call.tool_name} (args: {fn_call.arguments})")
+                
+                @session.on("function_call_finished")
+                def on_tool_end(fn_call, result):
+                    print(f"⏱️ [Perf] Herramienta {fn_call.tool_name} finalizó.")
+            except:
+                pass # Eventos pueden variar según versión del SDK
         
         print(f"🚀 [Agent] Conectando sala {ctx.room.name}...")
         await session.start(agent=agent_instance, room=ctx.room)
