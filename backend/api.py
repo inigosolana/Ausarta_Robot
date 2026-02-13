@@ -1105,6 +1105,8 @@ async def make_outbound_call(call_request: OutboundCallRequest):
             """, (call_request.phoneNumber,))
             existing = cursor.fetchone()
             
+            if existing:
+                existing_id, existing_status, existing_completada = existing
                 # FORCE NEW SURVEY: No reutilizar nada, siempre nueva llamada
                 print(f"ℹ️ Historial encontrado (ID: {existing_id}, status: {existing_status}), pero forzamos nueva encuesta.")
                  # id_ficha = existing_id <-- COMENTADO PARA NO REUTILIZAR
