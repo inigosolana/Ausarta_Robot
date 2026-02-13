@@ -1105,20 +1105,9 @@ async def make_outbound_call(call_request: OutboundCallRequest):
             """, (call_request.phoneNumber,))
             existing = cursor.fetchone()
             
-            if existing:
-                existing_id, existing_status, existing_completada = existing
-                
-                # PREVENIR reintentos ÚNICAMENTE si está completada
-                if existing_status == 'completed' or existing_completada == 1:
-                    conn.close()
-                    raise HTTPException(
-                        status_code=400, 
-                        detail=f"Esta encuesta ya fue completada (ID: {existing_id}). No se permiten reintentos."
-                    )
-                
-                # Para CUALQUIER otro estado (rejected_opt_out, incomplete, unreached, failed), PERMITIMOS reintentar
-                print(f"⚠️ Reintentando llamada con ID existente: {existing_id} (status: {existing_status})")
-                id_ficha = existing_id
+                # FORCE NEW SURVEY: No reutilizar nada, siempre nueva llamada
+                print(f"ℹ️ Historial encontrado (ID: {existing_id}, status: {existing_status}), pero forzamos nueva encuesta.")
+                 # id_ficha = existing_id <-- COMENTADO PARA NO REUTILIZAR
                 conn.close()
             
             # Si no hay ID reutilizable, crear nueva ficha
