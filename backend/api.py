@@ -411,11 +411,14 @@ async def get_recent_calls():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, telefono, fecha, completada, status,
-               puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez,
-               comentarios, transcription, llm_model
-        FROM encuestas 
-        ORDER BY fecha DESC LIMIT 15
+        SELECT e.id, e.telefono, e.fecha, e.completada, e.status,
+               e.puntuacion_comercial, e.puntuacion_instalador, e.puntuacion_rapidez,
+               e.comentarios, e.transcription, e.llm_model,
+               c.name as campaign_name
+        FROM encuestas e
+        LEFT JOIN campaign_leads cl ON e.id = cl.call_id
+        LEFT JOIN campaigns c ON cl.campaign_id = c.id
+        ORDER BY e.fecha DESC LIMIT 15
     """)
     rows = cursor.fetchall()
     conn.close()
@@ -426,6 +429,7 @@ async def get_recent_calls():
         results.append({
             "id": row['id'],
             "phone": row['telefono'],
+            "campaign": row['campaign_name'] or "Directo",
             "date": f"{row['fecha']}Z" if not str(row['fecha']).endswith('Z') else row['fecha'],
             "status": row['status'] if row['status'] else ("completed" if row['completada'] else "pending"),
             "scores": {
@@ -1038,7 +1042,13 @@ async def retry_single_lead(lead_id: int):
 async def get_results():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM encuestas ORDER BY fecha DESC")
+    cursor.execute("""
+        SELECT e.*, c.name as campaign_name 
+        FROM encuestas e
+        LEFT JOIN campaign_leads cl ON e.id = cl.call_id
+        LEFT JOIN campaigns c ON cl.campaign_id = c.id
+        ORDER BY e.fecha DESC
+    """)
     rows = cursor.fetchall()
     conn.close()
     results = []
@@ -1046,6 +1056,8 @@ async def get_results():
         d = dict(row)
         if d.get('fecha') and not str(d['fecha']).endswith('Z'):
             d['fecha'] = f"{d['fecha']}Z"
+        # Renombrar para consistencia frontend si es necesario, o solo añadirlo
+        d['campaign_name'] = d.get('campaign_name') or "Manual"
         results.append(d)
     return results
 

@@ -27,6 +27,7 @@ interface DashboardStats {
 interface Call {
     id: number;
     phone: number;
+    campaign: string;
     date: string;
     status: string;
     scores: {
@@ -224,7 +225,7 @@ const DashboardView: React.FC = () => {
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                             <tr>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teléfono</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teléfono / Campaña</th>
                                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
                                 <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">C / I / R</th>
                                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
@@ -234,8 +235,13 @@ const DashboardView: React.FC = () => {
                             {recentCalls.map((call) => (
                                 <tr key={call.id}>
                                     <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 flex items-center gap-2">
-                                        <User size={14} className="text-gray-400" />
-                                        {call.phone}
+                                        <div className="flex flex-col">
+                                            <div className="flex items-center gap-1">
+                                                <User size={12} className="text-gray-400" />
+                                                <span className="font-medium text-xs">{call.phone}</span>
+                                            </div>
+                                            <span className="text-[10px] text-blue-600 font-bold uppercase tracking-tighter ml-4">{call.campaign}</span>
+                                        </div>
                                     </td>
                                     <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">
                                         {new Date(call.date).toLocaleString()}

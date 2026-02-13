@@ -5,6 +5,7 @@ import { Download, Search, RefreshCw, FileText } from 'lucide-react';
 interface SurveyResult {
     id: number;
     telefono: string;
+    campaign_name?: string;
     fecha: string;
     completada: number;
     status: string | null;
@@ -44,6 +45,7 @@ const ResultsView: React.FC = () => {
 
     const filteredResults = results.filter(r =>
         r.telefono.includes(searchTerm) ||
+        (r.campaign_name && r.campaign_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (r.comentarios && r.comentarios.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (r.transcription && r.transcription.toLowerCase().includes(searchTerm.toLowerCase()))
     );
@@ -121,7 +123,7 @@ const ResultsView: React.FC = () => {
                         <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
                             <tr>
                                 <th className="px-6 py-3 w-16">ID</th>
-                                <th className="px-6 py-3">Phone</th>
+                                <th className="px-6 py-3">Phone / Campaign</th>
                                 <th className="px-6 py-3">Date</th>
                                 <th className="px-6 py-3 text-center">Status</th>
                                 <th className="px-6 py-3 text-center">Scores (C/I/R)</th>
@@ -140,7 +142,12 @@ const ResultsView: React.FC = () => {
                             ) : filteredResults.map((row) => (
                                 <tr key={row.id} className="hover:bg-gray-50/50 transition-colors">
                                     <td className="px-6 py-4 font-mono text-xs text-gray-400">#{row.id}</td>
-                                    <td className="px-6 py-4 font-medium text-gray-900">{row.telefono}</td>
+                                    <td className="px-6 py-4">
+                                        <div className="flex flex-col">
+                                            <span className="font-medium text-gray-900">{row.telefono}</span>
+                                            <span className="text-[10px] text-blue-600 font-bold uppercase tracking-tighter">{row.campaign_name}</span>
+                                        </div>
+                                    </td>
                                     <td className="px-6 py-4 text-gray-500">
                                         {new Date(row.fecha).toLocaleDateString()} <span className="text-xs text-gray-400">{new Date(row.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                     </td>
