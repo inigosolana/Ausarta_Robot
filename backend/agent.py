@@ -393,10 +393,11 @@ class DefaultAgent(Agent):
         """Helper para guardar encuesta con métricas de uso"""
         
         # Actualizar cache local
-        if nota_comercial: self.current_scores["nota_comercial"] = nota_comercial
-        if nota_instalador: self.current_scores["nota_instalador"] = nota_instalador
-        if nota_rapidez: self.current_scores["nota_rapidez"] = nota_rapidez
-        if comentarios: self.current_scores["comentarios"] = comentarios
+        # Actualizar cache local
+        if nota_comercial is not None: self.current_scores["nota_comercial"] = nota_comercial
+        if nota_instalador is not None: self.current_scores["nota_instalador"] = nota_instalador
+        if nota_rapidez is not None: self.current_scores["nota_rapidez"] = nota_rapidez
+        if comentarios is not None: self.current_scores["comentarios"] = comentarios
         if status: self.last_status = status
         if status == 'completed': self.is_completed = True
 
@@ -441,10 +442,10 @@ class DefaultAgent(Agent):
         status: Optional[str] = None
     ) -> str | None:
         """
-        Guarda los datos de la encuesta. 
-        LLAMAR SIEMPRE que se obtenga una nota o comentario.
-        - Si el cliente dice NO quiere hacer la encuesta (opt-out): status='rejected_opt_out'.
-        - Si el cliente termina o no quiere dejar comentarios al final: status='completed'.
+        Guarda los datos de la encuesta obtenidos hasta el momento.
+        LLAMAR INMEDIATAMENTE tras recibir cada respuesta (nota o comentario).
+        - status='rejected_opt_out': Si el cliente rechaza participar explícitamente.
+        - status='completed': Si el cliente termina la encuesta o dice que no quiere dejar comentarios finales.
         """
         print(f"🛠️ [Tool] Ejecutando guardar_encuesta: ID={id_encuesta}, status={status}")
         context.disallow_interruptions()
@@ -573,27 +574,25 @@ async def entrypoint(ctx: JobContext):
        b) "Del 0 al 10, ¿cómo calificaría al instalador?" → guardar_encuesta(nota_instalador=X)
        c) "Del 0 al 10, ¿cómo calificaría la rapidez?" → guardar_encuesta(nota_rapidez=X)
     
-    6. RECHAZO INICIAL: Si el usuario dice que NO tiene un minuto o no quiere hacer la encuesta al principio:
+    6. RECHAZO INICIAL: Si el usuario dice que NO tiene un minuto o no quiere hacer la encuesta:
        - Di "Entendido. Muchas gracias, que tenga un buen día"
        - Llama a `guardar_encuesta(status='rejected_opt_out')`
-       - **INMEDIATAMENTE** llama a `finalizar_llamada()` para colgar
+       - **ESPERA 2 segundos** a que termine de hablar y llama a `finalizar_llamada()`
        - NO esperes más respuestas
     
-    7. FINALIZACIÓN (MUY IMPORTANTE - ACTÚA RÁPIDO):
-       - Después de recibir las 3 notas (comercial, instalador, rapidez), pregunta: "¿Desea dejar algún comentario adicional?"
+    7. FINALIZACIÓN (ACCIÓN RÁPIDA Y CORTESÍA):
+       - Después de recibir las 3 notas, pregunta: "¿Desea dejar algún comentario adicional?"
        - Si dice SÍ: 
          * Escucha el comentario completo
          * Llama a `guardar_encuesta(comentarios="...", status='completed')`
-         * Di SOLO "Gracias, que tenga un buen día" (corto y directo)
-         * Llama a `finalizar_llamada()` INMEDIATAMENTE
-       - Si dice NO o cualquier negativa (no, nada, eso es todo, etc): 
-         * PRIMERO llama a `guardar_encuesta(status='completed')` para asegurar que se guarden los datos
-         * Di SOLO "Perfecto, muchas gracias, adiós" (MÁXIMO 5 palabras)
-         * Llama a `finalizar_llamada()` INMEDIATAMENTE sin esperar respuesta
-         * NO digas frases largas, NO insistas, NO preguntes nada más
-       - **SIEMPRE** finaliza con `finalizar_llamada()` después de despedirte.
-       - NO esperes más respuestas después de `finalizar_llamada()`.
-       - `finalizar_llamada()` NO necesita parámetros, se llama exactamente así: `finalizar_llamada()`
+         * Di "Muchas gracias por su tiempo, que pase un gran día. ¡Adiós!"
+         * Espera un segundo y llama a `finalizar_llamada()`
+       - Si dice NO o negativa: 
+         * Llama a `guardar_encuesta(status='completed')`
+         * Di "Perfecto, muchas gracias de todas formas. ¡Que tenga un buen día!"
+         * Espera un segundo y llama a `finalizar_llamada()`
+       - **SIEMPRE** usa `finalizar_llamada()` después de despedirte coralmente.
+       - NO añadas frases adicionales después de decir adiós.
     """
 
     # Extraer ID de la sala

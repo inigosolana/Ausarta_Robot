@@ -1297,7 +1297,7 @@ async def guardar_encuesta(datos: FinEncuesta):
                                 if val is not None:
                                     update_fields.append(f"{col} = ?")
                                     params.append(val)
-                                    print(f"🕵️ [Rescue] Extraído {col}={val} de la transcripción.")
+                                    print(f"🕵️ [Rescue] Extraído {col}={val} de la transcripción (Keyword: '{keywords[0]}').")
                                     break
 
         if datos.comentarios is not None and datos.comentarios != "Sin comentarios":
@@ -1363,9 +1363,9 @@ async def guardar_encuesta(datos: FinEncuesta):
 async def colgar(datos: ColgarLlamada):
     print(f"✂️  Petición de colgar recibida.")
     
-    # Pausa breve para dar tiempo a la despedida (reducida para colgar más rápido)
-    print("⏳ Esperando 1 segundo para dar tiempo a la despedida...")
-    await asyncio.sleep(1.0) 
+    # Pausa breve para dar tiempo a la despedida
+    print("⏳ Esperando 2 segundos para dar tiempo a la despedida...")
+    await asyncio.sleep(2.0) 
 
     lkapi = api.LiveKitAPI(
         os.getenv("LIVEKIT_URL"),
