@@ -110,14 +110,39 @@ async def guardar_encuesta(datos: FinEncuesta):
 
         is_done = 1 if datos.status == 'completed' else 0
         
-        cursor.execute(
-            """UPDATE encuestas 
-               SET puntuacion_comercial=%s, puntuacion_instalador=%s, puntuacion_rapidez=%s, comentarios=%s, completada=%s, llm_model=%s
-               WHERE id=%s""",
-            (clean_nota(datos.nota_comercial), clean_nota(datos.nota_instalador), clean_nota(datos.nota_rapidez), datos.comentarios, is_done, datos.llm_model, id_final)
-        )
+        # 1. Obtener datos actuales para no sobreescribir con NULL
+        cursor.execute("SELECT puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez, comentarios, llm_model FROM encuestas WHERE id=%s", (id_final,))
+        current = cursor.fetchone()
+        
+        if current:
+            curr_comercial, curr_instalador, curr_rapidez, curr_comentarios, curr_llm = current
+            
+            # Solo actualizar si el dato no es None
+            new_comercial = clean_nota(datos.nota_comercial) if datos.nota_comercial is not None else curr_comercial
+            new_instalador = clean_nota(datos.nota_instalador) if datos.nota_instalador is not None else curr_instalador
+            new_rapidez = clean_nota(datos.nota_rapidez) if datos.nota_rapidez is not None else curr_rapidez
+            
+            # Comentarios: No usar el default "Sin comentarios" si ya hay algo mejor
+            new_comentarios = datos.comentarios if (datos.comentarios and datos.comentarios != "Sin comentarios") else curr_comentarios
+            new_llm = datos.llm_model if (datos.llm_model and datos.llm_model != "Desconocido") else curr_llm
+
+            cursor.execute(
+                """UPDATE encuestas 
+                   SET puntuacion_comercial=%s, puntuacion_instalador=%s, puntuacion_rapidez=%s, comentarios=%s, completada=%s, llm_model=%s, status=%s
+                   WHERE id=%s""",
+                (new_comercial, new_instalador, new_rapidez, new_comentarios, is_done, new_llm, datos.status, id_final)
+            )
+        else:
+            # Fallback (si es nueva, aunque no debería)
+            cursor.execute(
+                """UPDATE encuestas 
+                   SET puntuacion_comercial=%s, puntuacion_instalador=%s, puntuacion_rapidez=%s, comentarios=%s, completada=%s, llm_model=%s, status=%s
+                   WHERE id=%s""",
+                (clean_nota(datos.nota_comercial), clean_nota(datos.nota_instalador), clean_nota(datos.nota_rapidez), datos.comentarios, is_done, datos.llm_model, datos.status, id_final)
+            )
+
         conn.commit()
-        print(f"🚀 ¡EXITO! Datos guardados en ficha {id_final}.")
+        print(f"🚀 ¡EXITO! Datos guardados en ficha {id_final} (status: {datos.status}).")
         return {"status": "success"}
     finally:
         cursor.close()

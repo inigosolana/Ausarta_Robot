@@ -1096,24 +1096,18 @@ async def make_outbound_call(call_request: OutboundCallRequest):
             if existing:
                 existing_id, existing_status, existing_completada = existing
                 
-                # PREVENIR reintentos si está completada o rechazada
+                # PREVENIR reintentos ÚNICAMENTE si está completada
                 if existing_status == 'completed' or existing_completada == 1:
                     conn.close()
                     raise HTTPException(
                         status_code=400, 
                         detail=f"Esta encuesta ya fue completada (ID: {existing_id}). No se permiten reintentos."
                     )
-                elif existing_status == 'rejected_opt_out':
-                    conn.close()
-                    raise HTTPException(
-                        status_code=400, 
-                        detail=f"El cliente rechazó la encuesta (ID: {existing_id}). No se permiten reintentos."
-                    )
-                elif existing_status in ['incomplete', 'unreached', None]:
-                    # PERMITIR reintento - usar el ID existente
-                    print(f"⚠️ Reintentando llamada con ID existente: {existing_id} (status: {existing_status})")
-                    id_ficha = existing_id
-                    conn.close()
+                
+                # Para CUALQUIER otro estado (rejected_opt_out, incomplete, unreached, failed), PERMITIMOS reintentar
+                print(f"⚠️ Reintentando llamada con ID existente: {existing_id} (status: {existing_status})")
+                id_ficha = existing_id
+                conn.close()
             
             # Si no hay ID reutilizable, crear nueva ficha
             if not id_ficha:
