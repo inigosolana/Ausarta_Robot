@@ -536,6 +536,12 @@ class DefaultAgent(Agent):
         url = f"{self.server_url}/colgar"
         payload = {"nombre_sala": nombre_sala}
         try:
+            # ESPERA CRÍTICA:
+            # Damos 4 segundos para que el TTS (que va por otro stream) termine de decir "Adiós..."
+            # Si cortamos aquí mismo, el usuario oye "Adió-" y se corta.
+            print("⏳ [Tool] Esperando 4s para que termine el audio de despedida...")
+            await asyncio.sleep(4)
+
             session = utils.http_context.http_session()
             async with session.post(url, timeout=aiohttp.ClientTimeout(total=10), json=payload) as resp:
                 return await resp.text()
@@ -597,7 +603,31 @@ async def entrypoint(ctx: JobContext):
     """
 
     # Extraer ID de la sala
+    # Extraer ID de la sala
     import re
+    survey_id = 0
+    match = re.search(r'encuesta_(\d+)', ctx.room.name)
+    if match:
+        survey_id = int(match.group(1))
+
+    # --- HANDLER DE DESCONEXIÓN (SI EL USUARIO CUELGA) ---
+    @ctx.room.on("disconnected")
+    def on_disconnected(reason):
+        print(f"🔌 [Agent] Desconexión detectada en sala {ctx.room.name}. Razón: {reason}")
+        # Si ya hemos marcado como completada (por la herramienta), no hacemos nada
+        # Si NO está marcada como completada, es un 'incomplete' o 'rejected_opt_out' implícito
+        
+        # Necesitamos lanzar una tarea asíncrona porque este handler es síncrono o callback
+        asyncio.create_task(handle_disconnection(ctx, survey_id))
+
+    async def handle_disconnection(ctx, survey_id: int):
+        # Recuperar estado actual desde el agente (hacky way to get 'self' context if needed, 
+        # but better to use the agent instance if we had it. 
+        # Since 'agent' variable is created below, we need a wrapper or access via scope)
+        pass 
+        # NOTA: Como 'agent' se crea más abajo, definiremos esto DESPUES de crear el agente
+        # o usaremos una función externa. Moveremos lógica de guardado al shutdown hook del agente.
+
     survey_id = None
     match = re.search(r'encuesta_(\d+)', ctx.room.name)
     if match:
@@ -818,6 +848,50 @@ async def entrypoint(ctx: JobContext):
         @ctx.room.on("participant_disconnected")
         def on_participant_left(participant):
             identity = participant.identity if hasattr(participant, 'identity') else str(participant)
+            print(f"🔌 [Agent] Participante desconectado: {identity}")
+            
+            # Si se desconecta el único humano, lanzamos guardado de emergencia
+            asyncio.create_task(final_save(agent_instance, survey_id))
+
+        @ctx.room.on("disconnected")
+        def on_room_disconnected():
+            print(f"🔌 [Agent] Sala desconectada completamente.")
+            asyncio.create_task(final_save(agent_instance, survey_id))
+
+        async def final_save(agent_inst, s_id):
+            print(f"💾 [Shutdown] Guardado de emergencia para ID {s_id}...")
+            try:
+                # Si ya estaba completada (por tool), ignoramos
+                if agent_inst.is_completed:
+                     print("✅ [Shutdown] Encuesta ya finalizada correctamente. No se sobrescribe.")
+                     return
+
+                # Si NO estaba completada, recuperamos status previo o 'incomplete'
+                # Si el usuario colgó muy rápido (menos de 5s) y status es None -> 'unreached' o 'incomplete'?
+                # Mejor 'incomplete' para indicar que contestó pero no terminó.
+                
+                final_st = agent_inst.last_status 
+                if not final_st:
+                     # Si no ha dicho nada (interaction count bajo), quizás es un rejected implícito o unreached?
+                     if agent_inst.interaction_count < 1:
+                         final_st = 'incomplete' # O 'unreached' si prefieres
+                     else:
+                         final_st = 'incomplete'
+                else:
+                     # Si tenía un status (ej: rejected_opt_out) pero el tool falló, aquí lo rescatamos
+                     pass
+
+                print(f"⚠️ [Shutdown] La encuesta NO estaba finalizada. Guardando forzosamente como '{final_st}'.")
+                
+                # Actualizar timestamp de cierre
+                await agent_inst.helper_save_survey(
+                    id_encuesta=s_id,
+                    transcript=agent_inst.full_transcript,
+                    status=final_st,
+                    **agent_inst.current_scores
+                )
+            except Exception as e:
+                print(f"❌ [Shutdown] Error guardando: {e}")
             print(f"📵 [Agent] Participante desconectado: {identity}")
             
             # Si es el cliente SIP (no el agente mismo), cerrar sala
