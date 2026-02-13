@@ -473,9 +473,12 @@ class DefaultAgent(Agent):
 
     @function_tool(name="finalizar_llamada")
     async def _http_tool_finalizar_llamada(
-        self, context: RunContext
+        self, context: RunContext, status: Optional[str] = None
     ) -> str | None:
-        """Corta la llamada inmediatamente. Usar tras despedirse. NO necesita parámetros."""
+        """
+        Corta la llamada inmediatamente. Usar tras despedirse.
+        - status: 'completed' (si terminó bien) o 'rejected_opt_out' (si rechazó al inicio).
+        """
         # Auto-detectar sala del contexto
         nombre_sala = None
         try:
@@ -518,10 +521,12 @@ class DefaultAgent(Agent):
             match = re.search(r'encuesta_(\d+)', nombre_sala)
             if match:
                 survey_id = int(match.group(1))
+                # Use the passed status, defaulting to self.last_status or 'completed' if nothing else
+                final_status = status or self.last_status or 'completed'
                 await self.helper_save_survey(
                     id_encuesta=survey_id,
                     transcript=self.full_transcript,
-                    status='completed',
+                    status=final_status,
                     **self.current_scores
                 )
                 print(f"💾 [Tool] Guardado final antes de colgar (ID: {survey_id})")
@@ -578,7 +583,7 @@ async def entrypoint(ctx: JobContext):
        - Si al preguntarle si tiene un minuto dice NO, o que no le interesa:
        - PRIMERO Di: "Entendido, disculpe las molestias. Muchas gracias y adiós."
        - LUEGO llama a `guardar_encuesta(status='rejected_opt_out')`
-       - POR ÚLTIMO llama a `finalizar_llamada()`
+       - POR ÚLTIMO llama a `finalizar_llamada(status='rejected_opt_out')`
        - IMPORTANTE: Di la frase de despedida ANTES de llamar a las herramientas.
     
     7. FINALIZACIÓN (CUANDO YA TIENES LAS 3 NOTAS):
