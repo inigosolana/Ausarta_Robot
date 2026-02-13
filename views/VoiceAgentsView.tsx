@@ -328,6 +328,7 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
                   let defaultModel = 'llama-3.3-70b-versatile';
                   if (newProvider === 'google') defaultModel = 'models/gemini-1.5-flash';
                   if (newProvider === 'openai') defaultModel = 'gpt-4o';
+                  if (newProvider === 'deepseek') defaultModel = 'deepseek-chat';
                   setAiConfig({ ...aiConfig, llm_provider: newProvider, llm_model: defaultModel });
                 }}
                 className="w-full px-3 py-2 border rounded-lg bg-gray-50"
@@ -335,6 +336,7 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
                 <option value="openai">OpenAI (GPT-4o)</option>
                 <option value="groq">Groq (Llama 3, Mixtral)</option>
                 <option value="google">Google Gemini</option>
+                <option value="deepseek">DeepSeek (V3, R1)</option>
               </select>
             </div>
             <div>
@@ -355,6 +357,11 @@ const VoiceAgentsView: React.FC<{ onStartCall: () => void }> = ({ onStartCall })
                     <option value="models/gemini-2.0-flash">Gemini 2.0 Flash</option>
                     <option value="models/gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
                     <option value="models/gemini-1.5-flash">Gemini 1.5 Flash</option>
+                  </>
+                ) : aiConfig.llm_provider === 'deepseek' ? (
+                  <>
+                    <option value="deepseek-chat">DeepSeek-V3 (Chat)</option>
+                    <option value="deepseek-reasoner">DeepSeek-R1 (Reasoning)</option>
                   </>
                 ) : (
                   <>
