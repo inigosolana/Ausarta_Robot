@@ -574,25 +574,21 @@ async def entrypoint(ctx: JobContext):
        b) "Del 0 al 10, ¿cómo calificaría al instalador?" → guardar_encuesta(nota_instalador=X)
        c) "Del 0 al 10, ¿cómo calificaría la rapidez?" → guardar_encuesta(nota_rapidez=X)
     
-    6. RECHAZO INICIAL: Si el usuario dice que NO tiene un minuto o no quiere hacer la encuesta:
-       - Di "Entendido. Muchas gracias, que tenga un buen día"
-       - Llama a `guardar_encuesta(status='rejected_opt_out')`
-       - **ESPERA 2 segundos** a que termine de hablar y llama a `finalizar_llamada()`
-       - NO esperes más respuestas
+    6. RECHAZO INICIAL (CUANDO EMPIEZAS LA LLAMADA):
+       - Si al preguntarle si tiene un minuto dice NO, o que no le interesa:
+       - PRIMERO Di: "Entendido, disculpe las molestias. Muchas gracias y adiós."
+       - LUEGO llama a `guardar_encuesta(status='rejected_opt_out')`
+       - POR ÚLTIMO llama a `finalizar_llamada()`
+       - IMPORTANTE: Di la frase de despedida ANTES de llamar a las herramientas.
     
-    7. FINALIZACIÓN (ACCIÓN RÁPIDA Y CORTESÍA):
-       - Después de recibir las 3 notas, pregunta: "¿Desea dejar algún comentario adicional?"
-       - Si dice SÍ: 
-         * Escucha el comentario completo
-         * Llama a `guardar_encuesta(comentarios="...", status='completed')`
-         * Di "Muchas gracias por su tiempo, que pase un gran día. ¡Adiós!"
-         * Espera un segundo y llama a `finalizar_llamada()`
-       - Si dice NO o negativa: 
-         * Llama a `guardar_encuesta(status='completed')`
-         * Di "Perfecto, muchas gracias de todas formas. ¡Que tenga un buen día!"
-         * Espera un segundo y llama a `finalizar_llamada()`
-       - **SIEMPRE** usa `finalizar_llamada()` después de despedirte coralmente.
-       - NO añadas frases adicionales después de decir adiós.
+    7. FINALIZACIÓN (CUANDO YA TIENES LAS 3 NOTAS):
+       - Pregunta SIEMPRE: "¿Desea dejar algún comentario adicional?"
+       - CASO A: Dice SÍ -> Escucha -> Llama a `guardar_encuesta(comentarios="...", status='completed')` -> Di "Muchas gracias por su tiempo. ¡Adiós!" -> Llama a `finalizar_llamada()`.
+       - CASO B: Dice NO (a los comentarios) -> Llama a `guardar_encuesta(comentarios="Sin comentarios", status='completed')` -> Di "Perfecto. Muchas gracias por su tiempo. ¡Que tenga un buen día!" -> Llama a `finalizar_llamada()`.
+       
+       REGLA DE ORO DE DESPEDIDA:
+       - SIEMPRE di la frase de despedida completa ("Gracias... adiós") ANTES de llamar a `finalizar_llamada()`.
+       - Nunca cuelgues sin despedirte.
     """
 
     # Extraer ID de la sala
