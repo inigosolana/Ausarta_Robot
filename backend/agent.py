@@ -834,34 +834,6 @@ async def entrypoint(ctx: JobContext):
         def on_participant_left(participant):
              # Ya manejado por el handler global arriba
              pass
-            print(f"📵 [Agent] Participante desconectado: {identity}")
-            
-            # Si es el cliente SIP (no el agente mismo), cerrar sala
-            if "Cliente" in str(identity) or "sip" in str(identity).lower():
-                has_interaction = bool(agent_instance.full_transcript and "Cliente:" in agent_instance.full_transcript)
-                
-                if not has_interaction:
-                    print(f"📵 [Agent] Cliente nunca contestó o rechazó la llamada. Cerrando sala en 5s...")
-                    
-                    async def delayed_close():
-                        await asyncio.sleep(5)  # Esperar un momento por si acaso
-                        # Verificar de nuevo que no hubo interacción
-                        if not (agent_instance.full_transcript and "Cliente:" in agent_instance.full_transcript):
-                            print(f"📵 [Agent] Confirmado: sin interacción. Forzando cierre de sala.")
-                            try:
-                                lkapi_close = api.LiveKitAPI(
-                                    os.getenv("LIVEKIT_URL"),
-                                    os.getenv("LIVEKIT_API_KEY"),
-                                    os.getenv("LIVEKIT_API_SECRET"),
-                                )
-                                await lkapi_close.room.delete_room(api.DeleteRoomRequest(room=ctx.room.name))
-                                await lkapi_close.aclose()
-                            except Exception as e:
-                                print(f"⚠️ [Agent] Error cerrando sala: {e}")
-                    
-                    asyncio.create_task(delayed_close())
-                else:
-                    print(f"⚠️ [Agent] Cliente se desconectó pero hubo interacción. Cleanup normal.")
 
         # Eliminamos ruido de fondo para una voz más limpia
         pass
