@@ -471,6 +471,7 @@ async def get_dashboard_integrations():
     """Retorna el estado de las integraciones externas"""
     return [
         {"name": "Primary LLM", "provider": "Groq", "active": bool(os.getenv("GROQ_API_KEY")), "model": "llama-3.3-70b", "env_var": "GROQ_API_KEY"},
+        {"name": "Budget LLM", "provider": "DeepSeek", "active": bool(os.getenv("DEEPSEEK_API_KEY")), "model": "deepseek-chat", "env_var": "DEEPSEEK_API_KEY"},
         {"name": "Backup LLM", "provider": "Google", "active": bool(os.getenv("GOOGLE_API_KEY")), "model": "gemini-2.0-flash", "env_var": "GOOGLE_API_KEY"},
         {"name": "Voice TTS", "provider": "Cartesia", "active": bool(os.getenv("CARTESIA_API_KEY")), "model": "sonic-es", "env_var": "CARTESIA_API_KEY"},
         {"name": "STT Live", "provider": "Deepgram", "active": bool(os.getenv("DEEPGRAM_API_KEY")), "model": "nova-2-es", "env_var": "DEEPGRAM_API_KEY"},
@@ -498,6 +499,7 @@ async def get_ai_limits():
                         results["groq_models"][model] = {
                             "active": resp.status == 200 or resp.status == 429,
                             "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
+                            "requests_limit": resp.headers.get("x-ratelimit-limit-requests"),
                             "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
                             "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
                             "status": resp.status
@@ -530,6 +532,7 @@ async def get_ai_limits():
                     results["openai"] = {
                         "active": resp.status == 200 or resp.status == 429,
                         "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
+                        "requests_limit": resp.headers.get("x-ratelimit-limit-requests"),
                         "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
                         "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
                         "info": "Límites dinámicos basados en Tier (1-5)",
@@ -538,7 +541,30 @@ async def get_ai_limits():
         except Exception as e:
             results["openai"] = {"active": False, "error": str(e)}
 
-    # 4. Deepgram - Balances de Proyecto
+    # 4. DeepSeek
+    ds_key = os.getenv("DEEPSEEK_API_KEY")
+    if ds_key:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "https://api.deepseek.com/chat/completions",
+                    headers={"Authorization": f"Bearer {ds_key}"},
+                    json={"model": "deepseek-chat", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
+                    timeout=5
+                ) as resp:
+                    results["deepseek"] = {
+                        "active": resp.status == 200 or resp.status == 429,
+                        "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
+                        "requests_limit": resp.headers.get("x-ratelimit-limit-requests"),
+                        "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
+                        "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
+                        "info": "DeepSeek-V3 / DeepSeek-R1",
+                        "status": resp.status
+                    }
+        except Exception as e:
+            results["deepseek"] = {"active": False, "error": str(e)}
+
+    # 5. Deepgram - Balances de Proyecto
     dg_key = os.getenv("DEEPGRAM_API_KEY")
     if dg_key:
         try:
@@ -554,7 +580,7 @@ async def get_ai_limits():
                                     results["deepgram"] = (await b_resp.json())
         except: pass
 
-    # 5. ElevenLabs
+    # 6. ElevenLabs
     el_key = os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")
     if el_key:
         try:
@@ -570,7 +596,7 @@ async def get_ai_limits():
                         }
         except: pass
 
-    # 6. Cartesia
+    # 7. Cartesia
     cartesia_key = os.getenv("CARTESIA_API_KEY")
     if cartesia_key:
         results["cartesia"] = {

@@ -107,7 +107,38 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google", p
         except Exception as e:
             print(f"⚠️ [Discovery] Error consultando OpenAI: {e}")
 
-    # 4. Ordenar por prioridad calculada
+    # 4. DeepSeek (si hay clave)
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+    if deepseek_key:
+        try:
+            is_deepseek_pref = preferred_provider == "deepseek"
+            # Base DeepSeek: 15
+            deepseek_prio = 1 if is_deepseek_pref else 15
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "https://api.deepseek.com/chat/completions",
+                    headers={"Authorization": f"Bearer {deepseek_key}"},
+                    json={"model": "deepseek-chat", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
+                    timeout=3
+                ) as resp:
+                    if resp.status == 200 or resp.status == 429:
+                        candidates.append(("DeepSeek Chat", openai.LLM(
+                            model="deepseek-chat",
+                            base_url="https://api.deepseek.com",
+                            api_key=deepseek_key
+                        ), deepseek_prio))
+                        candidates.append(("DeepSeek Reasoner", openai.LLM(
+                            model="deepseek-reasoner",
+                            base_url="https://api.deepseek.com",
+                            api_key=deepseek_key
+                        ), deepseek_prio + 5))
+                    else:
+                        print(f"⚠️ [Discovery] DeepSeek respondió con status {resp.status}")
+        except Exception as e:
+            print(f"⚠️ [Discovery] Error consultando DeepSeek: {e}")
+
+    # 5. Ordenar por prioridad calculada
     candidates.sort(key=lambda x: x[2])
     
     # Si el usuario quiere un proveedor específico, nos aseguramos de que lidere
@@ -117,6 +148,8 @@ async def discover_best_llm(google_key, groq_key, preferred_provider="google", p
         candidates.sort(key=lambda x: 0 if "OpenAI" in x[0] else x[2])
     elif preferred_provider == "google":
         candidates.sort(key=lambda x: 0 if "Google" in x[0] else x[2])
+    elif preferred_provider == "deepseek":
+        candidates.sort(key=lambda x: 0 if "DeepSeek" in x[0] else x[2])
     
     return [(c[0], c[1]) for c in candidates]
 
@@ -692,6 +725,10 @@ async def entrypoint(ctx: JobContext):
             if "gpt" not in model_name.lower():
                  print(f"⚠️ [Correction] Se pidió OpenAI pero el modelo era '{model_name}'. Forzando 'gpt-4o-mini'.")
                  model_name = "gpt-4o-mini"
+        elif provider == "deepseek":
+            if "deepseek" not in model_name.lower():
+                 print(f"⚠️ [Correction] Se pidió DeepSeek pero el modelo era '{model_name}'. Forzando 'deepseek-chat'.")
+                 model_name = "deepseek-chat"
 
         print(f"⚙️ [LLM Config] Final -> Provider: {provider} | Model: {model_name}")
 

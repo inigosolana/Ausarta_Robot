@@ -142,7 +142,9 @@ const UsageView: React.FC = () => {
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-2">
                                             <div className={`w-2 h-2 rounded-full ${stat.llm_model.includes('Google') ? 'bg-blue-400' :
-                                                stat.llm_model.includes('Groq') ? 'bg-orange-400' : 'bg-green-400'
+                                                stat.llm_model.includes('Groq') ? 'bg-orange-400' :
+                                                    stat.llm_model.includes('DeepSeek') ? 'bg-blue-700' :
+                                                        'bg-green-400'
                                                 }`}></div>
                                             <span className="text-sm font-bold text-gray-900">{stat.llm_model}</span>
                                         </div>
@@ -191,18 +193,24 @@ const UsageView: React.FC = () => {
                                             <div className="text-[10px] font-bold text-gray-400 truncate mb-2">{model}</div>
                                             <div className="space-y-2">
                                                 <div className="flex justify-between text-[11px]">
-                                                    <span className="text-gray-500">Tokens Restantes:</span>
-                                                    <span className="font-mono font-bold text-blue-600">{Number(data.tokens_remaining).toLocaleString()}</span>
+                                                    <span className="text-gray-500 font-bold">Tokens (TPM):</span>
+                                                    <span className="font-mono">
+                                                        <span className="font-bold text-blue-600">{Number(data.tokens_remaining).toLocaleString()}</span>
+                                                        <span className="text-[10px] text-gray-400"> / {data.tokens_limit ? Number(data.tokens_limit).toLocaleString() : 'Limit'}</span>
+                                                    </span>
                                                 </div>
                                                 <div className="w-full bg-gray-100 rounded-full h-1">
                                                     <div
-                                                        className="bg-blue-500 h-1 rounded-full"
-                                                        style={{ width: `${Math.min(100, (data.tokens_remaining / data.tokens_limit) * 100)}%` }}
+                                                        className="bg-blue-500 h-1 rounded-full transition-all"
+                                                        style={{ width: data.tokens_limit ? `${Math.min(100, (data.tokens_remaining / data.tokens_limit) * 100)}%` : '100%' }}
                                                     ></div>
                                                 </div>
                                                 <div className="flex justify-between text-[11px]">
-                                                    <span className="text-gray-500">RPM:</span>
-                                                    <span className="font-mono font-bold text-gray-700">{data.requests_remaining}</span>
+                                                    <span className="text-gray-500 font-bold">Peticiones (RPM):</span>
+                                                    <span className="font-mono">
+                                                        <span className="font-bold text-gray-700">{data.requests_remaining}</span>
+                                                        <span className="text-[10px] text-gray-400"> / {data.requests_limit || 'Limit'}</span>
+                                                    </span>
                                                 </div>
                                             </div>
                                         </div>
@@ -217,22 +225,70 @@ const UsageView: React.FC = () => {
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-2">
                                         <span className="w-5 h-5 bg-black rounded flex items-center justify-center text-[10px] text-white font-bold">O</span>
-                                        <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">OpenAI (TPM)</span>
+                                        <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">OpenAI Limits</span>
                                     </div>
                                 </div>
                                 <div className="space-y-3">
                                     <div className="flex justify-between items-center text-xs">
-                                        <span className="text-gray-500">TPM Restante:</span>
-                                        <span className="font-mono font-bold text-green-600">
-                                            {liveLimits.openai.tokens_remaining ? Number(liveLimits.openai.tokens_remaining).toLocaleString() : 'Check Dashboard'}
+                                        <span className="text-gray-500">Tokens (TPM):</span>
+                                        <span className="font-mono">
+                                            <span className="font-bold text-green-600">{liveLimits.openai.tokens_remaining ? Number(liveLimits.openai.tokens_remaining).toLocaleString() : '---'}</span>
+                                            <span className="text-gray-400"> / {liveLimits.openai.tokens_limit ? Number(liveLimits.openai.tokens_limit).toLocaleString() : 'Limit'}</span>
                                         </span>
                                     </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-1">
+                                        <div
+                                            className="bg-green-500 h-1 rounded-full transition-all"
+                                            style={{ width: liveLimits.openai.tokens_limit ? `${(liveLimits.openai.tokens_remaining / liveLimits.openai.tokens_limit) * 100}%` : '100%' }}
+                                        ></div>
+                                    </div>
                                     <div className="flex justify-between items-center text-xs">
-                                        <span className="text-gray-500">RPM Restante:</span>
-                                        <span className="font-mono font-bold text-gray-700">{liveLimits.openai.requests_remaining || '---'}</span>
+                                        <span className="text-gray-500">Peticiones (RPM):</span>
+                                        <span className="font-mono">
+                                            <span className="font-bold text-gray-700">{liveLimits.openai.requests_remaining || '---'}</span>
+                                            <span className="text-gray-400"> / {liveLimits.openai.requests_limit || 'Limit'}</span>
+                                        </span>
                                     </div>
                                     <div className="p-2 bg-green-50 rounded border border-green-100 text-[10px] text-green-700 text-center font-medium">
                                         {liveLimits.openai.info}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* DeepSeek Card */}
+                        {liveLimits.deepseek && liveLimits.deepseek.active && (
+                            <div className="p-5 rounded-xl bg-gray-50 border border-gray-100">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 bg-blue-600 rounded flex items-center justify-center text-[10px] text-white font-bold">DS</div>
+                                        <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">DeepSeek Limits</span>
+                                    </div>
+                                    <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">V3 / R1</span>
+                                </div>
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-gray-500">Tokens (TPM):</span>
+                                        <span className="font-mono">
+                                            <span className="font-bold text-blue-600">{liveLimits.deepseek.tokens_remaining ? Number(liveLimits.deepseek.tokens_remaining).toLocaleString() : '---'}</span>
+                                            <span className="text-gray-400"> / {liveLimits.deepseek.tokens_limit ? Number(liveLimits.deepseek.tokens_limit).toLocaleString() : 'Limit'}</span>
+                                        </span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-1">
+                                        <div
+                                            className="bg-blue-500 h-1 rounded-full transition-all"
+                                            style={{ width: liveLimits.deepseek.tokens_limit ? `${(liveLimits.deepseek.tokens_remaining / liveLimits.deepseek.tokens_limit) * 100}%` : '100%' }}
+                                        ></div>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-gray-500">Peticiones (RPM):</span>
+                                        <span className="font-mono">
+                                            <span className="font-bold text-gray-700">{liveLimits.deepseek.requests_remaining || '---'}</span>
+                                            <span className="text-gray-400"> / {liveLimits.deepseek.requests_limit || 'Limit'}</span>
+                                        </span>
+                                    </div>
+                                    <div className="p-2 bg-blue-50 rounded border border-blue-100 text-[10px] text-blue-700 text-center font-medium">
+                                        {liveLimits.deepseek.info}
                                     </div>
                                 </div>
                             </div>
@@ -330,8 +386,20 @@ const UsageView: React.FC = () => {
                                     </div>
                                 </div>
                                 <div className="space-y-3">
-                                    <div className="text-xs text-gray-700 font-bold">{liveLimits.google.info}</div>
-                                    <div className="text-[10px] text-gray-500">Modelo Activo: {liveLimits.google.model}</div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-gray-500 font-bold">Capacidad estimada:</span>
+                                    </div>
+                                    <div className="p-3 bg-blue-50 rounded border border-blue-100 space-y-2">
+                                        <div className="flex justify-between text-[11px]">
+                                            <span className="text-blue-700">Tokens (TPM):</span>
+                                            <span className="font-bold text-blue-800">1,000,000</span>
+                                        </div>
+                                        <div className="flex justify-between text-[11px]">
+                                            <span className="text-blue-700">Peticiones (RPM):</span>
+                                            <span className="font-bold text-blue-800">15</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-[10px] text-gray-500 italic">Google no expone límites live vía API simple, se usan valores de Tier Standard.</div>
                                     <button
                                         onClick={async () => {
                                             const res = await fetch(`${API_URL}/ai/diagnose-google`);
@@ -372,6 +440,10 @@ const UsageView: React.FC = () => {
                             <a href="https://aistudio.google.com/app/plan_information" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors">
                                 <span className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center text-[8px] text-white font-bold">G</span>
                                 Google AI Quota
+                            </a>
+                            <a href="https://platform.deepseek.com/usage" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors">
+                                <span className="w-4 h-4 bg-blue-600 rounded-full flex items-center justify-center text-[8px] text-white font-bold">DS</span>
+                                DeepSeek Usage
                             </a>
                             <a href="https://play.cartesia.ai/settings" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors">
                                 <span className="w-4 h-4 bg-purple-500 rounded-full flex items-center justify-center text-[8px] text-white font-bold">C</span>

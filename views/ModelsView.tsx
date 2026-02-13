@@ -71,6 +71,11 @@ const ModelsView: React.FC = () => {
         'models/gemini-2.0-flash-lite',
         'models/gemini-1.5-flash'
       ];
+    } else if (settings.llm_provider === 'deepseek') {
+      return [
+        'deepseek-chat',
+        'deepseek-reasoner'
+      ];
     } else if (settings.llm_provider === 'openai') {
       return [
         'gpt-4o',
@@ -129,6 +134,7 @@ const ModelsView: React.FC = () => {
                     <option value="openai">OpenAI (GPT-4o, mini)</option>
                     <option value="groq">Groq (Llama 3, Mixtral)</option>
                     <option value="google">Google Gemini</option>
+                    <option value="deepseek">DeepSeek (V3, R1)</option>
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
                 </div>
@@ -137,7 +143,9 @@ const ModelsView: React.FC = () => {
                     ? 'Requires OPENAI_API_KEY in environment variables.'
                     : settings.llm_provider === 'google'
                       ? 'Requires GOOGLE_API_KEY in environment variables.'
-                      : 'Requires GROQ_API_KEY in environment variables.'}
+                      : settings.llm_provider === 'deepseek'
+                        ? 'Requires DEEPSEEK_API_KEY in environment variables.'
+                        : 'Requires GROQ_API_KEY in environment variables.'}
                 </p>
               </div>
 
