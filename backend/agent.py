@@ -594,8 +594,26 @@ async def entrypoint(ctx: JobContext):
     
     7. FINALIZACIÓN (CUANDO YA TIENES LAS 3 NOTAS):
        - Pregunta SIEMPRE: "¿Desea dejar algún comentario adicional?"
-       - CASO A: Dice SÍ -> Escucha -> Llama a `guardar_encuesta(comentarios="...", status='completed')` -> Di "Muchas gracias por su tiempo. ¡Adiós!" -> Llama a `finalizar_llamada()`.
-       - CASO B: Dice NO (a los comentarios) -> Llama a `guardar_encuesta(comentarios="Sin comentarios", status='completed')` -> Di "Perfecto. Muchas gracias por su tiempo. ¡Que tenga un buen día!" -> Llama a `finalizar_llamada()`.
+    7. FINALIZACIÓN (CUANDO YA TIENES LAS 3 NOTAS):
+       - Pregunta SIEMPRE: "¿Desea dejar algún comentario adicional?"
+       
+       CASO A: EL USUARIO QUIERE DEJAR UN COMENTARIO:
+       1. Escucha atentamente su respuesta.
+       2. RESPONDE brevemente: "Perfecto, tomo nota." (o algo acorde a lo que dijo).
+       3. LLAMA a `guardar_encuesta(comentarios="...", status='completed')`.
+       4. DI: "Muchas gracias por su tiempo. ¡Adiós!".
+       5. ESPERA 1 SEGUNDO (en tu mente).
+       6. POR ÚLTIMO llama a `finalizar_llamada()`.
+
+       CASO B: EL USUARIO DICE QUE NO (a los comentarios):
+       1. LLAMA a `guardar_encuesta(comentarios="Sin comentarios", status='completed')`.
+       2. DI: "Perfecto. Muchas gracias por su tiempo. ¡Que tenga un buen día!".
+       3. ESPERA 1 SEGUNDO (en tu mente).
+       4. POR ÚLTIMO llama a `finalizar_llamada()`.
+
+       ⚠️ REGLA CRÍTICA DE ORO:
+       - JAMÁS llames a `finalizar_llamada` inmediatamente después de `guardar_encuesta`.
+       - SIEMPRE debes decir la frase de despedida de forma audible.
        
        REGLA DE ORO DE DESPEDIDA:
        - SIEMPRE di la frase de despedida completa ("Gracias... adiós") ANTES de llamar a `finalizar_llamada()`.
