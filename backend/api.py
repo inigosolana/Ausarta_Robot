@@ -1607,8 +1607,13 @@ async def process_campaigns():
                              print(f"❌ [Worker] Error reportado por make_outbound_call: {call_result.get('detail')}")
                              cursor.execute("UPDATE campaign_leads SET status = 'failed' WHERE id = ?", (lead_id,))
                         else:
-                             # Si SIP OK -> Status 'called'
-                             cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE id = ?", (lead_id,))
+                             # Si SIP OK -> Status 'called', PERO solo si no ha cambiado ya a un estado final (race condition con llamada muy corta)
+                             cursor.execute("SELECT status FROM campaign_leads WHERE id = ?", (lead_id,))
+                             current_status_db = cursor.fetchone()[0]
+                             if current_status_db not in ('completed', 'rejected_opt_out', 'incomplete'):
+                                 cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE id = ?", (lead_id,))
+                             else:
+                                 print(f"⚠️ [Worker] El estado ya cambió a '{current_status_db}' durante el inicio. No sobrescribimos con 'called'.")
                         
                         conn.commit()
                         
