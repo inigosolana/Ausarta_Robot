@@ -1176,7 +1176,22 @@ async def make_outbound_call(call_request: OutboundCallRequest):
             print("🚀 ¡Llamada en curso!")
         except Exception as e:
             print(f"❌ Error SIP: {e}")
-            raise HTTPException(status_code=500, detail=f"Error iniciando SIP: {e}")
+            # NO lanzamos excepción para permitir que el worker vincule el ID
+            # Actualizamos la ficha a failed
+            try:
+                conn_err = get_db_connection()
+                cur_err = conn_err.cursor()
+                cur_err.execute("UPDATE encuestas SET status = 'failed' WHERE id = ?", (id_ficha,))
+                conn_err.commit()
+                conn_err.close()
+            except: pass
+            
+            return {
+                "status": "error",
+                "callId": id_ficha,
+                "roomName": sala,
+                "detail": str(e)
+            }
         finally:
             await lkapi.aclose()
         
@@ -1594,19 +1609,24 @@ async def process_campaigns():
                         # VINCULAR: Guardar el call_id (encuesta ID) en el lead para que luego
                         # /guardar-encuesta pueda actualizar el status del lead correctamente
                         call_id_from_result = call_result.get('callId') if isinstance(call_result, dict) else None
+                        
                         if call_id_from_result:
                             cursor.execute("UPDATE campaign_leads SET call_id = ? WHERE id = ?", (call_id_from_result, lead_id))
                             print(f"🔗 [Worker] Lead {lead_id} vinculado a encuesta {call_id_from_result}")
                         
-                        # Si SIP OK -> Status 'called'
-                        cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE id = ?", (lead_id,))
+                        if call_result.get('status') == 'error':
+                             print(f"❌ [Worker] Error reportado por make_outbound_call: {call_result.get('detail')}")
+                             cursor.execute("UPDATE campaign_leads SET status = 'failed' WHERE id = ?", (lead_id,))
+                        else:
+                             # Si SIP OK -> Status 'called'
+                             cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE id = ?", (lead_id,))
+                        
                         conn.commit()
                         
-                        print("⏸️ [Worker] Llamada lanzada. Pausando 10s para asegurar estabilidad...")
+                        print("⏸️ [Worker] Procesado. Pausando 10s...")
                         await asyncio.sleep(10) # Pausa solicitada por el usuario
                         
                         # IMPORTANTE: Romper el bucle de leads para volver a comprobar concurrencia arriba
-                        # Así garantizamos que no se lance la siguiente del array sin chequear rooms
                         break 
                         
                     except Exception as e:
