@@ -304,7 +304,7 @@ async def make_outbound_call(request: dict):
         # Esto asegura que LiveKit mande al agente Dakota-1ef9 a la sala inmediatamente
         print(f"🚀 [API] Solicitando despacho de agente 'Dakota-1ef9' a sala {room_name}...")
         try:
-            await lkapi.agent_dispatch.dispatch_job(api.DispatchJobRequest(
+            await lkapi.agent_dispatch.create_dispatch(api.CreateAgentDispatchRequest(
                 agent_name="Dakota-1ef9",
                 room=room_name
             ))
