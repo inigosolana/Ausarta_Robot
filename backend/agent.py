@@ -89,10 +89,11 @@ class DefaultAgent(Agent):
             
             PASO 5: CIERRE Y COMENTARIOS
             - Pregunta: "¿Algún comentario final antes de terminar?"
-            - Escucha.
-            - EJECUTA 'guardar_encuesta' (comentarios=X, status='completed').
-            - Di: "Muchas gracias por su tiempo, que tenga buen día."
-            - EJECUTA 'finalizar_llamada'.
+            - Escucha la respuesta del usuario.
+            - SI RESPONDE ALGO (un comentario): EJECUTA 'guardar_encuesta' (comentarios=X, status='completed').
+            - SI DICE QUE NO (o que no tiene nada): EJECUTA 'guardar_encuesta' (comentarios='Ninguno', status='completed').
+            - Tras ejecutar la herramienta, di: "Muchas gracias por su tiempo, que tenga buen día."
+            - Finalmente, EJECUTA 'finalizar_llamada'.
 
             SI EL USUARIO PIDE COLGAR A MITAD:
             1. GUARDA lo que tengas con status='incomplete'.
