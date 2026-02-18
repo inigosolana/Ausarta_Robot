@@ -256,10 +256,26 @@ async def entrypoint(ctx: JobContext):
             preemptive_generation=True, 
         )
 
+        # --- MONITORIZACIÓN EN TIEMPO REAL ---
+        
         @session.on("user_speech_committed")
         def on_user_speech(msg: stt.SpeechEvent):
-            print(f"\n🗣️  USUARIO DICE: {msg.alternatives[0].text}\n")
-            logger.info(f"TRANSCRIPCIÓN: {msg.alternatives[0].text}")
+            text = msg.alternatives[0].text
+            logger.info(f"🎤 [OÍDOS - STT]: Usuario ha dicho: '{text}'")
+
+        @session.on("agent_speech_started")
+        def on_agent_speech_started():
+            logger.info(f"🧠 [CEREBRO - LLM]: Respuesta generada, enviando a TTS...")
+
+        @session.on("agent_started_speaking")
+        def on_agent_started_speaking():
+            logger.info(f"🗣️  [BOCA - TTS]: Hablando ahora mismo (Audio saliendo)...")
+            
+        @session.on("agent_speech_interrupted")
+        def on_agent_interrupted():
+            logger.info(f"🤫 [BOCA]: El usuario me ha interrumpido.")
+
+        # --- INICIO DE SESIÓN ---
 
         await session.start(
             agent=DefaultAgent(room_name=ctx.room.name),
@@ -270,6 +286,8 @@ async def entrypoint(ctx: JobContext):
                 ),
             ),
         )
+        
+        logger.info(f"🚀 [SISTEMA]: Agente '{ctx.room.name}' ONLINE y listo.")
 
         background_audio = BackgroundAudioPlayer(
             ambient_sound=AudioConfig(BuiltinAudioClip.OFFICE_AMBIENCE, volume=0.1),
