@@ -192,6 +192,9 @@ async def entrypoint(ctx: JobContext):
     # --- CARGA DINÁMICA DE CONFIGURACIÓN ---
     llm_provider = "openai"
     llm_model = "gpt-4o-mini"
+    tts_provider = "cartesia"
+    tts_model = "sonic-multilingual"
+    tts_voice = "6511153f-72f9-4314-a204-8d8d8afd646a" # Default
     
     if supabase:
         try:
@@ -200,7 +203,13 @@ async def entrypoint(ctx: JobContext):
                 config = res.data[0]
                 llm_provider = config.get("llm_provider", "openai")
                 llm_model = config.get("llm_model", "gpt-4o-mini")
-                logger.info(f"⚙️ Configuración cargada: {llm_provider} / {llm_model}")
+                tts_provider = config.get("tts_provider", "cartesia")
+                tts_model = config.get("tts_model", "sonic-multilingual")
+                tts_voice = config.get("tts_voice", tts_voice)
+                
+                logger.info(f"⚙️ Configuración Dinámica:")
+                logger.info(f"   - LLM: {llm_provider} ({llm_model})")
+                logger.info(f"   - TTS: {tts_provider} ({tts_model}) | Voz: {tts_voice}")
         except Exception as e:
             logger.warning(f"⚠️ No se pudo cargar configuración dinámica, usando defaults: {e}")
 
@@ -219,14 +228,6 @@ async def entrypoint(ctx: JobContext):
             api_key=os.getenv("GOOGLE_API_KEY"),
             temperature=0.4
         )
-    elif llm_provider == "deepseek":
-        # DeepSeek suele ser compatible con OpenAI, usamos su base_url
-        selected_llm = openai.LLM(
-            model=llm_model,
-            base_url="https://api.deepseek.com/v1",
-            api_key=os.getenv("DEEPSEEK_API_KEY"),
-            temperature=0.4
-        )
     else: # Default: OpenAI
         selected_llm = openai.LLM(
             model=llm_model,
@@ -234,15 +235,23 @@ async def entrypoint(ctx: JobContext):
             temperature=0.4
         )
 
+    # --- SELECCIÓN DE TTS (BOCA) ---
+    selected_tts = None
+    if tts_provider == "openai":
+        selected_tts = openai.TTS(model=tts_model, voice=tts_voice)
+    else: # Default: Cartesia
+        selected_tts = cartesia.TTS(
+            model=tts_model,
+            voice=tts_voice,
+            language="es"
+        )
+
     try:
         session = AgentSession(
             stt=deepgram.STT(model="nova-3", language="es"),
             llm=selected_llm,
-            tts=cartesia.TTS(
-                model="sonic-multilingual",
-                voice="6511153f-72f9-4314-a204-8d8d8afd646a",
-                language="es"
-            ),
+            # Usa el TTS dinámico cargado de la DB
+            tts=selected_tts,
             vad=vad_model,
             preemptive_generation=True, 
         )
