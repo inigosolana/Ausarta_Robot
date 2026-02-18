@@ -1,8 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-import sqlite3
+import mysql.connector
 import os
 import re
 import asyncio
@@ -18,260 +14,168 @@ app = FastAPI(title="Ausarta Voice Agent API", version="1.0.0")
 # CORS para permitir requests del frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, especifica el dominio del frontend
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- CONEXIÓN DB SQLite ---
-DB_PATH = os.getenv('DB_PATH', '/app/data/encuestas.db')
-
+# --- CONEXIÓN DB MySQL ---
 def get_db_connection():
-    """Obtiene conexión a SQLite"""
-    # Asegurar que el directorio existe
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Obtiene conexión a MySQL"""
+    return mysql.connector.connect(
+        host=os.getenv('DB_HOST', 'localhost'),
+        user=os.getenv('DB_USER', 'ausarta_user'),
+        password=os.getenv('DB_PASSWORD', 'Noruega.15'),
+        database=os.getenv('DB_NAME', 'encuestas_ausarta')
+    )
 
 def init_database():
-    """Inicializa la base de datos SQLite si no existe"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS encuestas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telefono VARCHAR(20) NOT NULL,
-            fecha DATETIME NOT NULL,
-            completada INTEGER DEFAULT 0,
-            status VARCHAR(20) DEFAULT 'unreached', -- unreached, incomplete, completed, rejected_opt_out
-            puntuacion_comercial INTEGER DEFAULT NULL,
-            puntuacion_instalador INTEGER DEFAULT NULL,
-            puntuacion_rapidez INTEGER DEFAULT NULL,
-            comentarios TEXT DEFAULT NULL,
-            transcription TEXT DEFAULT NULL,
-            tokens_used INTEGER DEFAULT 0,
-            seconds_used INTEGER DEFAULT 0,
-            llm_model VARCHAR(50) DEFAULT NULL,
-            nombre_cliente VARCHAR(100) DEFAULT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Migración: Añadir columnas si no existen
+    """Inicializa la base de datos MySQL si no existe"""
     try:
-        cursor.execute("ALTER TABLE encuestas ADD COLUMN status VARCHAR(20) DEFAULT 'unreached'")
-    except: pass
-    try:
-        cursor.execute("ALTER TABLE encuestas ADD COLUMN llm_model VARCHAR(50) DEFAULT NULL")
-    except: pass
-    
-    # NEW: Campaigns Tables
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS campaigns (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name VARCHAR(100) NOT NULL,
-            agent_id INTEGER,
-            status VARCHAR(20) DEFAULT 'pending',
-            scheduled_time TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS campaign_leads (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            campaign_id INTEGER,
-            phone_number VARCHAR(20),
-            status VARCHAR(20) DEFAULT 'pending', -- pending, called, failed, completed
-            call_id INTEGER, -- ID de la encuesta asociada
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
-        )
-    ''')
-
-    # Tabla de configuración de AI
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS ai_config (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            llm_provider VARCHAR(50) DEFAULT 'groq',
-            llm_model VARCHAR(100) DEFAULT 'llama-3.3-70b-versatile',
-            tts_provider VARCHAR(50) DEFAULT 'cartesia',
-            tts_model VARCHAR(100) DEFAULT 'sonic-multilingual',
-            tts_voice VARCHAR(200) DEFAULT 'fb926b21-4d92-411a-85d0-9d06859e2171',
-            stt_provider VARCHAR(50) DEFAULT 'deepgram',
-            stt_model VARCHAR(100) DEFAULT 'nova-2',
-            language VARCHAR(10) DEFAULT 'es',
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Insertar configuración por defecto si no existe
-    cursor.execute('SELECT COUNT(*) FROM ai_config')
-    if cursor.fetchone()[0] == 0:
+        conn = get_db_connection()
+        cursor = conn.cursor() # Usar cursor normal para creación
+        
+        # Tabla de encuestas
         cursor.execute('''
-            INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language)
-            VALUES ('groq', 'llama-3.3-70b-versatile', 'cartesia', 'sonic-multilingual', 'fb926b21-4d92-411a-85d0-9d06859e2171', 'deepgram', 'nova-2', 'es')
+            CREATE TABLE IF NOT EXISTS encuestas (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                telefono VARCHAR(20) NOT NULL,
+                fecha DATETIME NOT NULL,
+                completada TINYINT(1) DEFAULT 0,
+                status VARCHAR(20) DEFAULT 'unreached',
+                puntuacion_comercial INT DEFAULT NULL,
+                puntuacion_instalador INT DEFAULT NULL,
+                puntuacion_rapidez INT DEFAULT NULL,
+                comentarios TEXT DEFAULT NULL,
+                transcription TEXT DEFAULT NULL,
+                tokens_used INT DEFAULT 0,
+                seconds_used INT DEFAULT 0,
+                llm_model VARCHAR(50) DEFAULT NULL,
+                nombre_cliente VARCHAR(100) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_telefono (telefono),
+                INDEX idx_fecha (fecha),
+                INDEX idx_completada (completada)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ''')
-    
-    # Tabla de configuración del agente
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS agent_config (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name VARCHAR(100) DEFAULT 'Ausarta Agent',
-            use_case VARCHAR(100) DEFAULT 'Encuestas de Calidad',
-            description TEXT DEFAULT 'Realiza encuestas de satisfacción',
-            instructions TEXT DEFAULT 'Eres un asistente de encuestas de calidad de Ausarta.',
-            greeting TEXT DEFAULT 'Hola, soy Dakota de Ausarta. ¿Tiene un minuto para una encuesta rápida?',
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Insertar configuración del agente por defecto si no existe
-    cursor.execute('SELECT COUNT(*) FROM agent_config')
-    if cursor.fetchone()[0] == 0:
+        
+        # Tabla de campañas
         cursor.execute('''
-            INSERT INTO agent_config (name, use_case, description, instructions, greeting)
-            VALUES (
-                'Ausarta Survey Agent',
-                'Encuestas de Calidad',
-                'Realiza encuestas de satisfacción a clientes',
-                """Eres un asistente de encuestas de calidad de Ausarta. Tu tono es profesional, amable y eficiente.
-
-TU MISIÓN:
-1. Saluda cordialmente y preséntate como Dakota de Ausarta.
-2. Pregunta si tienen un momento. ESPERA RESPUESTA.
-3. Haz estas 3 preguntas UNA A UNA (espera a que respondan cada una):
-   - "Del 1 al 10, ¿trato comercial?" -> TRAS RECIBIR NOTA, usa 'guardar_encuesta(nota_comercial=X)'.
-   - "Del 1 al 10, ¿instalador?" -> TRAS RECIBIR NOTA, usa 'guardar_encuesta(nota_instalador=X)'.
-   - "Del 1 al 10, ¿rapidez?" -> TRAS RECIBIR NOTA, usa 'guardar_encuesta(nota_rapidez=X)'.
-4. Pide comentario final. Tras recibirlo, usa 'guardar_encuesta(comentarios=X, status="completed")'.
-
-REGLAS CRÍTICAS:
-- NUNCA digas números de sala ni IDs técnicos.
-- NO REPITAS las notas que te diga el cliente.
-- Tras guardar con status='completed', di "Gracias, que tenga un buen día. Adiós" y usa 'finalizar_llamada'.
-- Usa 'guardar_encuesta' INMEDIATAMENTE tras cada dato obtenido.
-- Di siempre "UNO" para el número 1.""",
-                'Hola, soy Dakota de Ausarta. ¿Tiene un minuto para una encuesta rápida de calidad?'
-            )
+            CREATE TABLE IF NOT EXISTS campaigns (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                agent_id INT,
+                status VARCHAR(20) DEFAULT 'pending',
+                scheduled_time DATETIME NULL,
+                retries_count INT DEFAULT 3,
+                retry_interval INT DEFAULT 180,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ''')
 
-    # Tabla de plantillas de prompts
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS prompt_templates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name VARCHAR(100) NOT NULL,
-            description TEXT,
-            content TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+        # Tabla de leads de campañas
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS campaign_leads (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                campaign_id INT,
+                phone_number VARCHAR(20),
+                customer_name VARCHAR(100),
+                status VARCHAR(20) DEFAULT 'pending',
+                retries_attempted INT DEFAULT 0,
+                last_call_at DATETIME NULL,
+                next_retry_at DATETIME NULL,
+                call_id INT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY(campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ''')
 
-    # Tabla de alertas del sistema (ej: API Limits)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS system_alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type VARCHAR(50) NOT NULL, -- 'api_limit', 'error', 'info'
-            message TEXT NOT NULL,
-            is_active TINYINT(1) DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Tabla de configuración dinámica (LLM provider, model, etc)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS app_settings (
-            key VARCHAR(50) PRIMARY KEY,
-            value TEXT
-        )
-    ''')
-    
-    # Valores por defecto para settings si no existen
-    default_settings = {
-        "llm_provider": "groq",
-        "llm_model": "llama-3.3-70b-versatile"
-    }
-    for k, v in default_settings.items():
-        cursor.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)", (k, v))
+        # Tabla de configuración de AI
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ai_config (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                llm_provider VARCHAR(50) DEFAULT 'groq',
+                llm_model VARCHAR(100) DEFAULT 'llama-3.3-70b-versatile',
+                tts_provider VARCHAR(50) DEFAULT 'cartesia',
+                tts_model VARCHAR(100) DEFAULT 'sonic-multilingual',
+                tts_voice VARCHAR(200) DEFAULT 'fb926b21-4d92-411a-85d0-9d06859e2171',
+                stt_provider VARCHAR(50) DEFAULT 'deepgram',
+                stt_model VARCHAR(100) DEFAULT 'nova-2',
+                language VARCHAR(10) DEFAULT 'es',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ''')
 
-    # Insertar Template por defecto (Ausarta) si no existe
-    cursor.execute('SELECT COUNT(*) FROM prompt_templates')
-    if cursor.fetchone()[0] == 0:
-        default_prompt = """Eres un asistente de encuestas de calidad de Ausarta. Tu tono es profesional, amable y eficiente.
+        # Tabla de configuración del agente
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS agent_config (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(100) DEFAULT 'Ausarta Agent',
+                use_case VARCHAR(100) DEFAULT 'Encuestas de Calidad',
+                description TEXT,
+                instructions TEXT,
+                greeting TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ''')
 
-TU MISIÓN:
-1. Saluda cordialmente y preséntate como Dakota de Ausarta.
-2. Pregunta si tienen un momento para valorar el servicio reciente. ESPERA LA RESPUESTA.
-3. Si aceptan, realiza las siguientes 3 preguntas UNA POR UNA (espera la respuesta del usuario entre cada una):
-   
-   - PREGUNTA A: "Del 1 al 10, ¿cómo valora la atención comercial recibida?"
-   - PREGUNTA B: "Del 1 al 10, ¿qué puntuación le daría al trabajo del instalador?"
-   - PREGUNTA C: "Del 1 al 10, ¿cómo califica la rapidez del servicio?"
+        # Tabla de plantillas de prompts
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS prompt_templates (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                description TEXT,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ''')
 
-4. Finalmente, pregunta: "¿Tiene algún comentario adicional o sugerencia para mejorar?"
-
-REGLAS CRÍTICAS:
-- NO TE INVENTES LOS DATOS. Solo usa la herramienta 'guardar_encuesta' cuando hayas obtenido las notas.
-- NO REPITAS las notas del cliente. Pasa a la siguiente pregunta de forma fluida.
-- Si el usuario da una nota vaga ("muy bien"), pregunta: "¿Eso sería un 9 o un 10?".
-- Una vez guardados los datos o si no hay comentario adicional, di "Muchas gracias por su tiempo. Que tenga un buen día. Adiós" y usa la herramienta 'finalizar_llamada'.
-- NUNCA digas el ID de la encuesta ni el nombre de la sala.
-- Si el usuario dice que NO quiere participar al principio, di "Lo entiendo, gracias por su tiempo. Adiós" y corta la llamada."""
+        # Tabla de alertas del sistema
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS system_alerts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                type VARCHAR(50) NOT NULL, 
+                message TEXT NOT NULL,
+                is_active TINYINT(1) DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ''')
         
-        cursor.execute('INSERT INTO prompt_templates (name, description, content) VALUES (?, ?, ?)', 
-                      ('Encuesta Calidad Ausarta', 'Guion completo con preguntas explícitas', default_prompt))
+        # Tabla de configuración dinámica
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS app_settings (
+                `key` VARCHAR(50) PRIMARY KEY,
+                `value` TEXT
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ''')
         
-        cursor.execute('INSERT INTO prompt_templates (name, description, content) VALUES (?, ?, ?)', 
-                      ('Agente de Ventas', 'Para cualificar leads interesados', 'Eres un vendedor experto. Tu objetivo es descubrir las necesidades del cliente y agendar una reunión.'))
+        # Inicializar datos por defecto
+        cursor.execute('SELECT COUNT(*) FROM ai_config')
+        res = cursor.fetchone()
+        if res and res[0] == 0:
+            cursor.execute('''
+                INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language)
+                VALUES ('groq', 'llama-3.3-70b-versatile', 'cartesia', 'sonic-multilingual', 'fb926b21-4d92-411a-85d0-9d06859e2171', 'deepgram', 'nova-2', 'es')
+            ''')
 
-    # Crear índices
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_telefono ON encuestas(telefono)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_fecha ON encuestas(fecha)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_completada ON encuestas(completada)')
-    
-    # Migración: Añadir campo cliente a tablas existentes si no existe
-    migraciones = [
-        ("ALTER TABLE campaign_leads ADD COLUMN customer_name VARCHAR(100)", "camp_leads_cust"),
-        ("ALTER TABLE encuestas ADD COLUMN nombre_cliente VARCHAR(100)", "enc_cust"),
-        ("ALTER TABLE campaigns ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "camp_upd"),
-        ("ALTER TABLE campaign_leads ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "lead_upd"),
-        ("ALTER TABLE encuestas ADD COLUMN transcription TEXT", "enc_trans"),
-        ("ALTER TABLE encuestas ADD COLUMN tokens_used INTEGER DEFAULT 0", "enc_tok"),
-        ("ALTER TABLE encuestas ADD COLUMN seconds_used INTEGER DEFAULT 0", "enc_sec"),
-        ("ALTER TABLE campaigns ADD COLUMN retries_count INTEGER DEFAULT 3", "camp_retry_count"),
-        ("ALTER TABLE campaigns ADD COLUMN retry_interval INTEGER DEFAULT 180", "camp_retry_interval"),
-        ("ALTER TABLE campaign_leads ADD COLUMN retries_attempted INTEGER DEFAULT 0", "lead_tries"),
-        ("ALTER TABLE campaign_leads ADD COLUMN last_call_at TIMESTAMP DEFAULT NULL", "lead_last"),
-        ("ALTER TABLE campaign_leads ADD COLUMN next_retry_at TIMESTAMP DEFAULT NULL", "lead_next"),
-        ("ALTER TABLE encuestas ADD COLUMN llm_model VARCHAR(100) DEFAULT NULL", "enc_model")
-    ]
-    
-    for sql, name in migraciones:
-        try:
-            cursor.execute(sql)
-            print(f"📦 [DB] Migración aplicada: {name}")
-        except sqlite3.OperationalError:
-            pass # Ya existe
-        except Exception as e:
-            print(f"⚠️ [DB] Error en migración {name}: {e}")
+        cursor.execute('SELECT COUNT(*) FROM agent_config')
+        res = cursor.fetchone()
+        if res and res[0] == 0:
+            cursor.execute('''
+                INSERT INTO agent_config (name, use_case, description, instructions, greeting)
+                VALUES ('Dakota', 'Encuestas', 'Agente de Ausarta', 'Eres Dakota...', 'Hola...')
+            ''')
 
-    # ARREGLAR MODELOS SI ESTÁN MAL (MIGRACIÓN MANUAL)
-    cursor.execute("UPDATE ai_config SET llm_model = 'llama-3.3-70b-versatile' WHERE llm_model = 'llama-3.1-8b-instant'")
-    cursor.execute("UPDATE ai_config SET tts_model = 'sonic-multilingual' WHERE tts_model LIKE 'sonic-3%'")
-    cursor.execute("UPDATE ai_config SET stt_model = 'nova-2' WHERE stt_model LIKE 'nova-3%'")
-    
-    conn.commit()
-    conn.close()
-    print("✅ Base de datos SQLite inicializada correctamente")
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ Error al inicializar MySQL: {e}")
 
-# Inicializar BD al arrancar
 init_database()
-
 # --- MODELOS PYDANTIC ---
 class VoiceAgentCreate(BaseModel):
     name: str
@@ -366,42 +270,45 @@ async def root():
 @app.get("/api/dashboard/stats")
 async def get_dashboard_stats():
     conn = get_db_connection()
+    # Usar cursor normal para agregados
     cursor = conn.cursor()
     
     cursor.execute("SELECT COUNT(*) FROM encuestas")
-    total_calls = cursor.fetchone()[0]
+    total_calls = list(cursor.fetchone().values())[0]
     
     cursor.execute("SELECT COUNT(*) FROM encuestas WHERE completada = 1")
-    completed_calls = cursor.fetchone()[0]
+    completed_calls = list(cursor.fetchone().values())[0]
     
-    # Pendientes: contar leads en estado 'pending' de todas las campañas
     cursor.execute("SELECT COUNT(*) FROM campaign_leads WHERE status = 'pending'")
-    pending_calls = cursor.fetchone()[0]
+    pending_calls = list(cursor.fetchone().values())[0]
 
     # Scores
     cursor.execute("SELECT AVG((puntuacion_comercial + puntuacion_instalador + puntuacion_rapidez) / 3.0) FROM encuestas WHERE completada = 1")
-    avg_overall = cursor.fetchone()[0] or 0
+    avg_overall = list(cursor.fetchone().values())[0] or 0
     
     cursor.execute("SELECT AVG(puntuacion_comercial) FROM encuestas WHERE completada = 1")
-    avg_comercial = cursor.fetchone()[0] or 0
+    avg_comercial = list(cursor.fetchone().values())[0] or 0
     
     cursor.execute("SELECT AVG(puntuacion_instalador) FROM encuestas WHERE completada = 1")
-    avg_instalador = cursor.fetchone()[0] or 0
+    avg_instalador = list(cursor.fetchone().values())[0] or 0
     
     cursor.execute("SELECT AVG(puntuacion_rapidez) FROM encuestas WHERE completada = 1")
-    avg_rapidez = cursor.fetchone()[0] or 0
+    avg_rapidez = list(cursor.fetchone().values())[0] or 0
 
+    cursor.close()
     conn.close()
     
-    # Adaptado a la interfaz DashboardStats de DashboardView.tsx
     return {
         "total_calls": total_calls,
         "completed_calls": completed_calls,
         "pending_calls": pending_calls,
         "avg_scores": {
-            "comercial": round(avg_comercial, 1),
-            "instalador": round(avg_instalador, 1),
-            "rapidez": round(avg_rapidez, 1),
+            "comercial": round(float(avg_comercial), 1),
+            "instalador": round(float(avg_instalador), 1),
+            "rapidez": round(float(avg_rapidez), 1),
+            "overall": round(float(avg_overall), 1)
+        }
+    }
             "overall": round(avg_overall, 1)
         }
     }
@@ -409,7 +316,7 @@ async def get_dashboard_stats():
 @app.get("/api/dashboard/recent-calls")
 async def get_recent_calls():
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("""
         SELECT e.id, e.telefono, e.fecha, e.completada, e.status,
                e.puntuacion_comercial, e.puntuacion_instalador, e.puntuacion_rapidez,
@@ -445,7 +352,7 @@ async def get_recent_calls():
 async def get_usage_stats():
     """Retorna estadísticas agregadas de uso de tokens y minutos"""
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT SUM(tokens_used), SUM(seconds_used) FROM encuestas")
     res = cursor.fetchone()
     total_tokens = res[0] or 0
@@ -641,7 +548,7 @@ async def diagnose_google():
 @app.get("/api/settings")
 async def get_settings():
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT key, value FROM app_settings")
     rows = cursor.fetchall()
     conn.close()
@@ -654,22 +561,22 @@ class SettingsUpdate(BaseModel):
 @app.post("/api/settings")
 async def update_settings(settings: SettingsUpdate):
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     # 1. Update app_settings (Global)
     for key, val in [('llm_provider', settings.llm_provider), ('llm_model', settings.llm_model)]:
-        cursor.execute("UPDATE app_settings SET value = ? WHERE key = ?", (val, key))
+        cursor.execute("UPDATE app_settings SET value = %s WHERE key = %s", (val, key))
         if cursor.rowcount == 0:
-            cursor.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)", (key, val))
+            cursor.execute("INSERT INTO app_settings (key, value) VALUES (%s, %s)", (key, val))
     
     # 2. Sync legacy ai_config (for compatibility)
     cursor.execute("""
         UPDATE ai_config 
-        SET llm_provider=?, llm_model=?, updated_at=CURRENT_TIMESTAMP
+        SET llm_provider=%s, llm_model=%s, updated_at=CURRENT_TIMESTAMP
         WHERE id = (SELECT id FROM ai_config ORDER BY id DESC LIMIT 1)
     """, (settings.llm_provider, settings.llm_model))
     
     if cursor.rowcount == 0:
-        cursor.execute("INSERT INTO ai_config (llm_provider, llm_model) VALUES (?, ?)", (settings.llm_provider, settings.llm_model))
+        cursor.execute("INSERT INTO ai_config (llm_provider, llm_model) VALUES (%s, %s)", (settings.llm_provider, settings.llm_model))
     
     conn.commit()
     conn.close()
@@ -679,7 +586,7 @@ async def update_settings(settings: SettingsUpdate):
 async def get_system_alerts():
     """Devuelve las alertas activas del sistema"""
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM system_alerts WHERE is_active = 1 ORDER BY created_at DESC")
     rows = cursor.fetchall()
     conn.close()
@@ -689,8 +596,8 @@ async def get_system_alerts():
 async def resolve_alert(alert_id: int):
     """Marca una alerta como resuelta"""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE system_alerts SET is_active = 0 WHERE id = ?", (alert_id,))
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("UPDATE system_alerts SET is_active = 0 WHERE id = %s", (alert_id,))
     conn.commit()
     conn.close()
     return {"status": "success"}
@@ -700,7 +607,7 @@ async def resolve_alert(alert_id: int):
 @app.get("/api/agents")
 async def get_agents():
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM agent_config")
     rows = cursor.fetchall()
     # Mapeo de campos DB -> Frontend (camelCase)
@@ -720,14 +627,14 @@ async def get_agents():
 @app.put("/api/agents/{agent_id}")
 async def update_agent(agent_id: int, config: AgentConfigModel):
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     
     # Verificar si existe
-    cursor.execute("SELECT id FROM agent_config WHERE id = ?", (agent_id,))
+    cursor.execute("SELECT id FROM agent_config WHERE id = %s", (agent_id,))
     if not cursor.fetchone():
         # Si es el ID 1 y no existe, crearlo
         if agent_id == 1:
-             cursor.execute("INSERT INTO agent_config (id, name, use_case, description, instructions, greeting) VALUES (1, ?, ?, ?, ?, ?)",
+             cursor.execute("INSERT INTO agent_config (id, name, use_case, description, instructions, greeting) VALUES (1, %s, %s, %s, %s, %s)",
                            (config.name, config.use_case, config.description, config.instructions, config.greeting))
         else:
              conn.close()
@@ -735,8 +642,8 @@ async def update_agent(agent_id: int, config: AgentConfigModel):
     else:
         cursor.execute("""
             UPDATE agent_config 
-            SET name=?, use_case=?, description=?, instructions=?, greeting=?, updated_at=CURRENT_TIMESTAMP
-            WHERE id = ?
+            SET name=%s, use_case=%s, description=%s, instructions=%s, greeting=%s, updated_at=CURRENT_TIMESTAMP
+            WHERE id = %s
         """, (config.name, config.use_case, config.description, config.instructions, config.greeting, agent_id))
     
     conn.commit()
@@ -748,7 +655,7 @@ async def update_agent(agent_id: int, config: AgentConfigModel):
 @app.get("/api/ai/config")
 async def get_ai_config():
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM ai_config ORDER BY id DESC LIMIT 1")
     row = cursor.fetchone()
     conn.close()
@@ -757,25 +664,25 @@ async def get_ai_config():
 @app.post("/api/ai/config")
 async def update_ai_config(config: AIConfig):
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     
     # 1. Update ai_config (Legacy/VoiceAgentsView)
     cursor.execute("""
         UPDATE ai_config 
-        SET llm_provider=?, llm_model=?, tts_provider=?, tts_model=?, tts_voice=?, stt_provider=?, stt_model=?, language=?, updated_at=CURRENT_TIMESTAMP
+        SET llm_provider=%s, llm_model=%s, tts_provider=%s, tts_model=%s, tts_voice=%s, stt_provider=%s, stt_model=%s, language=%s, updated_at=CURRENT_TIMESTAMP
         WHERE id = (SELECT id FROM ai_config ORDER BY id DESC LIMIT 1)
     """, (config.llm_provider, config.llm_model, config.tts_provider, config.tts_model, config.tts_voice, config.stt_provider, config.stt_model, config.language))
     
     if cursor.rowcount == 0:
-        cursor.execute("INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        cursor.execute("INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                       (config.llm_provider, config.llm_model, config.tts_provider, config.tts_model, config.tts_voice, config.stt_provider, config.stt_model, config.language))
     
     # 2. Sync app_settings (Global/ModelsView)
-    cursor.execute("UPDATE app_settings SET value = ? WHERE key = 'llm_provider'", (config.llm_provider,))
-    cursor.execute("UPDATE app_settings SET value = ? WHERE key = 'llm_model'", (config.llm_model,))
+    cursor.execute("UPDATE app_settings SET value = %s WHERE key = 'llm_provider'", (config.llm_provider,))
+    cursor.execute("UPDATE app_settings SET value = %s WHERE key = 'llm_model'", (config.llm_model,))
     # Also create if not exists
-    cursor.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('llm_provider', ?)", (config.llm_provider,))
-    cursor.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('llm_model', ?)", (config.llm_model,))
+    cursor.execute("INSERT IGNORE INTO app_settings (key, value) VALUES ('llm_provider', %s)", (config.llm_provider,))
+    cursor.execute("INSERT IGNORE INTO app_settings (key, value) VALUES ('llm_model', %s)", (config.llm_model,))
     
     conn.commit()
     conn.close()
@@ -786,7 +693,7 @@ async def update_ai_config(config: AIConfig):
 @app.get("/api/prompts")
 async def get_prompts():
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM prompt_templates ORDER BY created_at DESC")
     rows = cursor.fetchall()
     conn.close()
@@ -795,8 +702,8 @@ async def get_prompts():
 @app.post("/api/prompts")
 async def create_prompt(prompt: PromptTemplateModel):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO prompt_templates (name, description, content) VALUES (?, ?, ?)",
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("INSERT INTO prompt_templates (name, description, content) VALUES (%s, %s, %s)",
                   (prompt.name, prompt.description, prompt.content))
     conn.commit()
     conn.close()
@@ -808,15 +715,15 @@ async def create_prompt(prompt: PromptTemplateModel):
 async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel]):
     """Crea una nueva campaña con leads"""
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     try:
-        cursor.execute("INSERT INTO campaigns (name, agent_id, status, scheduled_time, retries_count, retry_interval) VALUES (?, ?, ?, ?, ?, ?)",
+        cursor.execute("INSERT INTO campaigns (name, agent_id, status, scheduled_time, retries_count, retry_interval) VALUES (%s, %s, %s, %s, %s, %s)",
                       (campaign.name, campaign.agent_id, campaign.status, campaign.scheduled_time, campaign.retries_count, campaign.retry_interval))
         campaign_id = cursor.lastrowid
         
         # Insert leads
         for lead in leads:
-            cursor.execute("INSERT INTO campaign_leads (campaign_id, phone_number, customer_name) VALUES (?, ?, ?)",
+            cursor.execute("INSERT INTO campaign_leads (campaign_id, phone_number, customer_name) VALUES (%s, %s, %s)",
                           (campaign_id, lead.phone_number, lead.customer_name))
         
         conn.commit()
@@ -831,7 +738,7 @@ async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel
 @app.get("/api/campaigns")
 async def get_campaigns():
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     # Join con subqueries para contar leads
     cursor.execute("""
         SELECT 
@@ -886,7 +793,7 @@ async def get_campaigns():
 @app.get("/api/campaigns/{campaign_id}")
 async def get_campaign(campaign_id: int):
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     
     cursor.execute("""
         SELECT 
@@ -896,7 +803,7 @@ async def get_campaign(campaign_id: int):
             (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('failed', 'unreached', 'incomplete')) as failed_leads,
             (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'pending') as pending_leads
         FROM campaigns c
-        WHERE c.id = ?
+        WHERE c.id = %s
     """, (campaign_id,))
     campaign = cursor.fetchone()
     
@@ -914,7 +821,7 @@ async def get_campaign(campaign_id: int):
             e.transcription as transcription_preview
         FROM campaign_leads cl
         LEFT JOIN encuestas e ON cl.call_id = e.id
-        WHERE cl.campaign_id = ?
+        WHERE cl.campaign_id = %s
     """, (campaign_id,))
     leads = cursor.fetchall()
     conn.close()
@@ -939,9 +846,9 @@ async def get_campaign(campaign_id: int):
 @app.delete("/api/campaigns/{campaign_id}")
 async def delete_campaign(campaign_id: int):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM campaign_leads WHERE campaign_id = ?", (campaign_id,))
-    cursor.execute("DELETE FROM campaigns WHERE id = ?", (campaign_id,))
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("DELETE FROM campaign_leads WHERE campaign_id = %s", (campaign_id,))
+    cursor.execute("DELETE FROM campaigns WHERE id = %s", (campaign_id,))
     conn.commit()
     conn.close()
     return {"status": "success"}
@@ -949,10 +856,10 @@ async def delete_campaign(campaign_id: int):
 @app.put("/api/campaigns/{campaign_id}")
 async def update_campaign(campaign_id: int, config: CampaignUpdateModel):
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     
     # 1. Verificar existencia
-    cursor.execute("SELECT id FROM campaigns WHERE id = ?", (campaign_id,))
+    cursor.execute("SELECT id FROM campaigns WHERE id = %s", (campaign_id,))
     if not cursor.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="Campaign not found")
@@ -962,24 +869,24 @@ async def update_campaign(campaign_id: int, config: CampaignUpdateModel):
     params = []
     
     if config.name is not None:
-        update_fields.append("name = ?")
+        update_fields.append("name = %s")
         params.append(config.name)
     
     if config.agent_id is not None:
-        update_fields.append("agent_id = ?")
+        update_fields.append("agent_id = %s")
         params.append(config.agent_id)
         
     if config.scheduled_time is not None:
-        update_fields.append("scheduled_time = ?")
+        update_fields.append("scheduled_time = %s")
         params.append(config.scheduled_time)
         
     if config.status is not None:
-        update_fields.append("status = ?")
+        update_fields.append("status = %s")
         params.append(config.status)
         
     if update_fields:
         update_fields.append("created_at = created_at") # Hack para actualizar timestamp si es necesario, aunque falta updated_at en tabla campaigns
-        sql = f"UPDATE campaigns SET {', '.join(update_fields)} WHERE id = ?"
+        sql = f"UPDATE campaigns SET {', '.join(update_fields)} WHERE id = %s"
         params.append(campaign_id)
         cursor.execute(sql, tuple(params))
         conn.commit()
@@ -990,20 +897,20 @@ async def update_campaign(campaign_id: int, config: CampaignUpdateModel):
 @app.post("/api/campaigns/{campaign_id}/retry")
 async def retry_campaign_failed(campaign_id: int):
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     
     # 1. Resetear leads fallidos/unreached/incomplete a pending
     cursor.execute("""
         UPDATE campaign_leads 
         SET status = 'pending', retries_attempted = 0, next_retry_at = NULL
-        WHERE campaign_id = ? AND status IN ('failed', 'unreached', 'incomplete')
+        WHERE campaign_id = %s AND status IN ('failed', 'unreached', 'incomplete')
     """, (campaign_id,))
     
     count = cursor.rowcount
     
     # 2. Reactivar selección
     if count > 0:
-        cursor.execute("UPDATE campaigns SET status = 'pending' WHERE id = ?", (campaign_id,))
+        cursor.execute("UPDATE campaigns SET status = 'pending' WHERE id = %s", (campaign_id,))
     
     conn.commit()
     conn.close()
@@ -1013,13 +920,13 @@ async def retry_campaign_failed(campaign_id: int):
 async def retry_single_lead(lead_id: int):
     """Reintenta manualmente un lead específico (reset a pending y 0 retries)"""
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     
     # 1. Resetear status y contadores
     cursor.execute("""
         UPDATE campaign_leads 
         SET status = 'pending', retries_attempted = 0, next_retry_at = NULL
-        WHERE id = ?
+        WHERE id = %s
     """, (lead_id,))
     
     if cursor.rowcount == 0:
@@ -1027,12 +934,12 @@ async def retry_single_lead(lead_id: int):
         raise HTTPException(status_code=404, detail="Lead not found")
         
     # 2. Reactivar campaña si estaba parada
-    cursor.execute("SELECT campaign_id FROM campaign_leads WHERE id = ?", (lead_id,))
+    cursor.execute("SELECT campaign_id FROM campaign_leads WHERE id = %s", (lead_id,))
     row = cursor.fetchone()
     if row:
         campaign_id = row['campaign_id']
         # Si la campaña estaba completada o fallida, ponerla en running para que el worker la procese
-        cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = ? AND status != 'running'", (campaign_id,))
+        cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = %s AND status != 'running'", (campaign_id,))
     
     conn.commit()
     conn.close()
@@ -1041,7 +948,7 @@ async def retry_single_lead(lead_id: int):
 @app.get("/api/results")
 async def get_results():
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("""
         SELECT e.*, c.name as campaign_name 
         FROM encuestas e
@@ -1095,11 +1002,11 @@ async def make_outbound_call(call_request: OutboundCallRequest):
         try:
             # Verificar si ya existe una encuesta para este número
             conn = get_db_connection()
-            cursor = conn.cursor()
+            cursor = conn.cursor(dictionary=True)
             cursor.execute("""
                 SELECT id, status,completada 
                 FROM encuestas 
-                WHERE telefono = ? 
+                WHERE telefono = %s 
                 ORDER BY fecha DESC 
                 LIMIT 1
             """, (call_request.phoneNumber,))
@@ -1172,7 +1079,7 @@ async def make_outbound_call(call_request: OutboundCallRequest):
             try:
                 conn_err = get_db_connection()
                 cur_err = conn_err.cursor()
-                cur_err.execute("UPDATE encuestas SET status = 'failed' WHERE id = ?", (id_ficha,))
+                cur_err.execute("UPDATE encuestas SET status = 'failed' WHERE id = %s", (id_ficha,))
                 conn_err.commit()
                 conn_err.close()
             except: pass
@@ -1202,10 +1109,10 @@ async def make_outbound_call(call_request: OutboundCallRequest):
 async def iniciar_encuesta(datos: InicioEncuesta):
     print(f"📝 1. Creando ficha para: {datos.telefono} - {datos.nombre_cliente}")
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     try:
         # Usamos UTC para que el frontend (con Z) lo muestre bien en hora local
-        cursor.execute("INSERT INTO encuestas (telefono, nombre_cliente, fecha, completada) VALUES (?, ?, ?, 0)", 
+        cursor.execute("INSERT INTO encuestas (telefono, nombre_cliente, fecha, completada) VALUES (%s, %s, %s, 0)", 
                       (datos.telefono, datos.nombre_cliente, datetime.utcnow()))
         conn.commit()
         nuevo_id = cursor.lastrowid
@@ -1241,7 +1148,7 @@ async def guardar_encuesta(datos: FinEncuesta):
         return None
     
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     try:
         id_final = None
         try:
@@ -1269,19 +1176,19 @@ async def guardar_encuesta(datos: FinEncuesta):
         if datos.nota_comercial is not None:
             val = clean_nota(datos.nota_comercial)
             if val is not None:
-                update_fields.append("puntuacion_comercial = ?")
+                update_fields.append("puntuacion_comercial = %s")
                 params.append(val)
         
         if datos.nota_instalador is not None:
             val = clean_nota(datos.nota_instalador)
             if val is not None:
-                update_fields.append("puntuacion_instalador = ?")
+                update_fields.append("puntuacion_instalador = %s")
                 params.append(val)
 
         if datos.nota_rapidez is not None:
             val = clean_nota(datos.nota_rapidez)
             if val is not None:
-                update_fields.append("puntuacion_rapidez = ?")
+                update_fields.append("puntuacion_rapidez = %s")
                 params.append(val)
 
         if datos.transcription:
@@ -1301,39 +1208,39 @@ async def guardar_encuesta(datos: FinEncuesta):
                             if "cliente:" in cliente_line:
                                 val = clean_nota(cliente_line)
                                 if val is not None:
-                                    update_fields.append(f"{col} = ?")
+                                    update_fields.append(f"{col} = %s")
                                     params.append(val)
                                     print(f"🕵️ [Rescue] Extraído {col}={val} de la transcripción (Keyword: '{keywords[0]}').")
                                     break
 
         if datos.comentarios is not None and datos.comentarios != "Sin comentarios":
-            update_fields.append("comentarios = ?")
+            update_fields.append("comentarios = %s")
             params.append(datos.comentarios)
 
         if datos.transcription is not None:
-            update_fields.append("transcription = ?")
+            update_fields.append("transcription = %s")
             params.append(datos.transcription)
 
         if datos.tokens_used:
-            update_fields.append("tokens_used = ?")
+            update_fields.append("tokens_used = %s")
             params.append(datos.tokens_used)
 
         if datos.seconds_used:
-            update_fields.append("seconds_used = ?")
+            update_fields.append("seconds_used = %s")
             params.append(datos.seconds_used)
             
         if datos.llm_model:
-            update_fields.append("llm_model = ?")
+            update_fields.append("llm_model = %s")
             params.append(datos.llm_model)
 
         if datos.status is not None:
             # Actualizamos columna status en encuestas
-            update_fields.append("status = ?")
+            update_fields.append("status = %s")
             params.append(datos.status)
             
             # completada es 1 solo si terminó todas las preguntas
             final_complete = 1 if datos.status == 'completed' else 0
-            update_fields.append("completada = ?")
+            update_fields.append("completada = %s")
             params.append(final_complete)
             
             # Mapeamos status del agente a status del lead
@@ -1341,20 +1248,20 @@ async def guardar_encuesta(datos: FinEncuesta):
             lead_status = datos.status
             
             # Actualizar lead asociado a este call_id
-            cursor.execute("UPDATE campaign_leads SET status = ? WHERE call_id = ?", (lead_status, id_final))
+            cursor.execute("UPDATE campaign_leads SET status = %s WHERE call_id = %s", (lead_status, id_final))
             
             # Actualizar también por teléfono si quedó pending (fallback)
-            cursor.execute("SELECT telefono FROM encuestas WHERE id = ?", (id_final,))
+            cursor.execute("SELECT telefono FROM encuestas WHERE id = %s", (id_final,))
             phone_res = cursor.fetchone()
             if phone_res:
-                cursor.execute("UPDATE campaign_leads SET phone_number = ? WHERE call_id = ?", (phone_res[0], id_final))
-                cursor.execute("UPDATE campaign_leads SET status = ? WHERE phone_number = ? AND status IN ('pending', 'called')", (lead_status, phone_res[0]))
+                cursor.execute("UPDATE campaign_leads SET phone_number = %s WHERE call_id = %s", (phone_res['telefono'], id_final))
+                cursor.execute("UPDATE campaign_leads SET status = %s WHERE phone_number = %s AND status IN ('pending', 'called')", (lead_status, phone_res['telefono']))
         update_fields.append("updated_at = CURRENT_TIMESTAMP")
 
         if not update_fields:
             return {"status": "skipped", "msg": "No data to update"}
 
-        sql = f"UPDATE encuestas SET {', '.join(update_fields)} WHERE id = ?"
+        sql = f"UPDATE encuestas SET {', '.join(update_fields)} WHERE id = %s"
         params.append(id_final)
 
         cursor.execute(sql, tuple(params))
@@ -1388,13 +1295,13 @@ async def colgar(datos: ColgarLlamada):
         
         # Auto-reparación
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
         sala_real = None
         try:
             cursor.execute("SELECT id FROM encuestas ORDER BY id DESC LIMIT 1")
             resultado = cursor.fetchone()
             if resultado:
-                sala_real = f"encuesta_{resultado[0]}"
+                sala_real = f"encuesta_{resultado['id']}"
         except: pass
         finally:
             cursor.close()
@@ -1442,7 +1349,7 @@ async def process_campaigns():
 
             conn = get_db_connection()
 
-            cursor = conn.cursor()
+            cursor = conn.cursor(dictionary=True)
             
             # --- 1. ACTIVAR CAMPAÑAS PENDIENTES ---
             now_iso = datetime.utcnow().isoformat()
@@ -1452,13 +1359,13 @@ async def process_campaigns():
             cursor.execute("""
                 SELECT id, name FROM campaigns 
                 WHERE status = 'pending' 
-                AND (scheduled_time IS NULL OR scheduled_time <= ? OR scheduled_time <= ?)
+                AND (scheduled_time IS NULL OR scheduled_time <= %s OR scheduled_time <= %s)
             """, (now_iso, now_iso + "Z"))
             
             pending_campaigns = cursor.fetchall()
             for cmp in pending_campaigns:
                 print(f"🚀 [Worker] Activando campaña '{cmp['name']}' (ID: {cmp['id']})...")
-                cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = ?", (cmp['id'],))
+                cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = %s", (cmp['id'],))
             conn.commit()
             
             # --- 1.5 TIMEOUT WATCHDOG (FIX FOR LOST CALLS) ---
@@ -1471,7 +1378,7 @@ async def process_campaigns():
                 SELECT cl.id, cl.call_id
                 FROM campaign_leads cl
                 WHERE cl.status = 'called'
-                AND cl.last_call_at <= ?
+                AND cl.last_call_at <= %s
             """, (timeout_threshold,))
             stale_leads = cursor.fetchall()
             
@@ -1484,7 +1391,7 @@ async def process_campaigns():
                     # Check if there was actual interaction in the encuesta
                     cursor.execute("""
                         SELECT transcription, puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez, status
-                        FROM encuestas WHERE id = ?
+                        FROM encuestas WHERE id = %s
                     """, (stale_call_id,))
                     enc = cursor.fetchone()
                     if enc:
@@ -1499,7 +1406,7 @@ async def process_campaigns():
                         else:
                             new_status = 'unreached'
                 
-                cursor.execute("UPDATE campaign_leads SET status = ? WHERE id = ?", (new_status, stale_id))
+                cursor.execute("UPDATE campaign_leads SET status = %s WHERE id = %s", (new_status, stale_id))
                 print(f"♻️ [Worker] Timeout Watchdog: Lead {stale_id} -> {new_status}")
             
             if stale_leads:
@@ -1524,12 +1431,12 @@ async def process_campaigns():
                 # - INCOMPLETE: Respondieron pero no completaron, reintentar
                 cursor.execute("""
                     SELECT * FROM campaign_leads 
-                    WHERE campaign_id = ? 
+                    WHERE campaign_id = %s 
                     AND (
                         status = 'pending' 
-                        OR (status = 'failed' AND retries_attempted < ?)
-                        OR (status = 'unreached' AND retries_attempted < ?)
-                        OR (status = 'incomplete' AND retries_attempted < ?)
+                        OR (status = 'failed' AND retries_attempted < %s)
+                        OR (status = 'unreached' AND retries_attempted < %s)
+                        OR (status = 'incomplete' AND retries_attempted < %s)
                     )
                 """, (campaign_id, max_retries, max_retries, max_retries))
                 
@@ -1553,9 +1460,9 @@ async def process_campaigns():
                                 s_retry = str(next_retry).replace('Z', '')
                                 # Manejo de formatos con/sin microsegundos
                                 if '.' in s_retry:
-                                    target_time = datetime.strptime(s_retry, "%Y-%m-%d %H:%M:%S.%f")
+                                    target_time = datetime.strptime(s_retry, "%Y-%m-%d %H:%M:?.%f")
                                 else:
-                                    target_time = datetime.strptime(s_retry, "%Y-%m-%d %H:%M:%S")
+                                    target_time = datetime.strptime(s_retry, "%Y-%m-%d %H:%M:?")
                                     
                                 if now_dt >= target_time:
                                     leads_to_call.append(lead)
@@ -1583,8 +1490,8 @@ async def process_campaigns():
                             UPDATE campaign_leads 
                             SET retries_attempted = retries_attempted + 1, 
                                 last_call_at = CURRENT_TIMESTAMP,
-                                next_retry_at = ?
-                            WHERE id = ?
+                                next_retry_at = %s
+                            WHERE id = %s
                         """, (next_retry_dt, lead_id))
                         conn.commit()
                         
@@ -1602,18 +1509,19 @@ async def process_campaigns():
                         call_id_from_result = call_result.get('callId') if isinstance(call_result, dict) else None
                         
                         if call_id_from_result:
-                            cursor.execute("UPDATE campaign_leads SET call_id = ? WHERE id = ?", (call_id_from_result, lead_id))
+                            cursor.execute("UPDATE campaign_leads SET call_id = %s WHERE id = %s", (call_id_from_result, lead_id))
                             print(f"🔗 [Worker] Lead {lead_id} vinculado a encuesta {call_id_from_result}")
                         
                         if call_result.get('status') == 'error':
                              print(f"❌ [Worker] Error reportado por make_outbound_call: {call_result.get('detail')}")
-                             cursor.execute("UPDATE campaign_leads SET status = 'failed' WHERE id = ?", (lead_id,))
+                             cursor.execute("UPDATE campaign_leads SET status = 'failed' WHERE id = %s", (lead_id,))
                         else:
                              # Si SIP OK -> Status 'called', PERO solo si no ha cambiado ya a un estado final (race condition con llamada muy corta)
-                             cursor.execute("SELECT status FROM campaign_leads WHERE id = ?", (lead_id,))
-                             current_status_db = cursor.fetchone()[0]
+                             cursor.execute("SELECT status FROM campaign_leads WHERE id = %s", (lead_id,))
+                             res_stat = cursor.fetchone()
+                             current_status_db = res_stat['status'] if res_stat else 'pending'
                              if current_status_db not in ('completed', 'rejected_opt_out', 'incomplete'):
-                                 cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE id = ?", (lead_id,))
+                                 cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE id = %s", (lead_id,))
                              else:
                                  print(f"⚠️ [Worker] El estado ya cambió a '{current_status_db}' durante el inicio. No sobrescribimos con 'called'.")
                         
@@ -1628,7 +1536,7 @@ async def process_campaigns():
                     except Exception as e:
                         print(f"❌ [Worker] Fallo técnico al llamar {phone}: {e}")
                         # Marcar failed inmediatamente para que entre en ciclo de retry luego
-                        cursor.execute("UPDATE campaign_leads SET status = 'failed' WHERE id = ?", (lead_id,))
+                        cursor.execute("UPDATE campaign_leads SET status = 'failed' WHERE id = %s", (lead_id,))
                         conn.commit()
 
                 # --- 3. VERIFICAR FIN DE CAMPAÑA ---
@@ -1636,20 +1544,20 @@ async def process_campaigns():
                 # Una campaña acaba cuando NO hay leads en: pending, called, o (failed con intentos restantes)
                 cursor.execute("""
                     SELECT COUNT(*) FROM campaign_leads 
-                    WHERE campaign_id = ? 
+                    WHERE campaign_id = %s 
                     AND (
                         status = 'pending' 
                         OR status = 'called' 
-                        OR (status = 'failed' AND retries_attempted < ?)
-                        OR (status = 'unreached' AND retries_attempted < ?)
-                        OR (status = 'incomplete' AND retries_attempted < ?)
+                        OR (status = 'failed' AND retries_attempted < %s)
+                        OR (status = 'unreached' AND retries_attempted < %s)
+                        OR (status = 'incomplete' AND retries_attempted < %s)
                     )
                 """, (campaign_id, max_retries, max_retries, max_retries))
-                pending_count = cursor.fetchone()[0]
+                res_count = cursor.fetchone(); pending_count = list(res_count.values())[0] if res_count else 0
                 
                 if pending_count == 0:
                     print(f"✅ [Worker] Campaña {campaign_id} (retries={max_retries}) completada definitivamente.")
-                    cursor.execute("UPDATE campaigns SET status = 'completed' WHERE id = ?", (campaign_id,))
+                    cursor.execute("UPDATE campaigns SET status = 'completed' WHERE id = %s", (campaign_id,))
                     conn.commit()
 
             cursor.close()
