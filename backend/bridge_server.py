@@ -135,7 +135,8 @@ async def guardar_encuesta(datos: FinEncuesta):
             updates.append("puntuacion_rapidez=%s")
             values.append(val_rapidez)
 
-        if val_comentarios is not None and val_comentarios != "Sin comentarios":
+        if val_comentarios is not None:
+            # Aceptamos 'Ninguno' como comentario válido para cerrar
             updates.append("comentarios=%s")
             values.append(val_comentarios)
 
