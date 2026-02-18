@@ -96,10 +96,8 @@ class DefaultAgent(Agent):
 
 
     async def on_enter(self):
-        await self.session.generate_reply(
-            instructions="Di exactamente: 'Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?' y espera.",
-            allow_interruptions=False
-        )
+        # Usamos .say() para una frase fija, es más robusto que pedírselo al LLM
+        await self.session.say("Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?", allow_interruptions=False)
 
     async def _fire_and_forget_save(self, url, payload):
         try:
@@ -240,12 +238,12 @@ async def entrypoint(ctx: JobContext):
 
     try:
         session = AgentSession(
-            stt=deepgram.STT(model="nova-3", language="es"),
+            stt=deepgram.STT(model="nova-2", language="es"),
             llm=selected_llm,
             # Usa el TTS dinámico cargado de la DB
             tts=selected_tts,
             vad=vad_model,
-            preemptive_generation=True, 
+            preemptive_generation=False, 
         )
 
         # Configurar instancia del agente con prompt de la DB
