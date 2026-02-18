@@ -249,6 +249,77 @@ async def guardar_encuesta(datos: EncuestaData):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+# --- CONFIGURACIÓN DEL AGENTE ---
+
+@app.get("/api/agent/config")
+async def get_agent_config():
+    if not supabase: return {"name": "Dakota", "instructions": "Default"}
+    try:
+        res = supabase.table("agent_config").select("*").limit(1).execute()
+        if res.data:
+            return res.data[0]
+        else:
+            return {"name": "Dakota", "use_case": "Encuesta", "instructions": "Default"}
+    except Exception as e:
+        print(f"Error getting agent config: {e}")
+        return {"error": str(e)}
+
+@app.post("/api/agent/config")
+async def update_agent_config(config: dict): # Recibimos dict genérico para flexibilidad
+    if not supabase: return {"error": "No DB"}
+    try:
+        # Asegurar que existe registro 1
+        curr = supabase.table("agent_config").select("id").limit(1).execute()
+        if not curr.data:
+            supabase.table("agent_config").insert(config).execute()
+        else:
+            # Actualizar el primer registro
+            first_id = curr.data[0]['id']
+            # Filtrar campos válidos
+            valid_fields = ["name", "use_case", "greeting", "instructions", "description"]
+            clean_config = {k: v for k, v in config.items() if k in valid_fields}
+            clean_config["updated_at"] = datetime.utcnow().isoformat()
+            
+            supabase.table("agent_config").update(clean_config).eq("id", first_id).execute()
+            
+        return {"status": "ok", "message": "Configuración guardada"}
+    except Exception as e:
+        print(f"Error updating agent config: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+# --- CONFIGURACIÓN DE MODELOS (AI) ---
+
+@app.get("/api/ai/config")
+async def get_ai_config():
+    if not supabase: return {"llm_provider": "groq"}
+    try:
+        res = supabase.table("ai_config").select("*").limit(1).execute()
+        return res.data[0] if res.data else {}
+    except Exception as e:
+        print(f"Error AI config: {e}")
+        return {}
+
+@app.post("/api/ai/config")
+async def update_ai_config(config: dict):
+    if not supabase: return {"error": "No DB"}
+    try:
+        curr = supabase.table("ai_config").select("id").limit(1).execute()
+        if not curr.data:
+            supabase.table("ai_config").insert(config).execute()
+        else:
+            first_id = curr.data[0]['id']
+            # Filtrar
+            valid_fields = ["llm_provider", "llm_model", "tts_provider", "tts_model", "tts_voice", "stt_provider", "stt_model"]
+            clean_config = {k: v for k, v in config.items() if k in valid_fields}
+            clean_config["updated_at"] = datetime.utcnow().isoformat()
+            
+            supabase.table("ai_config").update(clean_config).eq("id", first_id).execute()
+            
+        return {"status": "ok", "message": "Modelos actualizados"}
+    except Exception as e:
+        print(f"Error updating AI config: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 # --- CAMPAIGN MANAGEMENT ---
 
 @app.post("/api/campaigns")
