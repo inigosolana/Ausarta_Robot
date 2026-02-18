@@ -1,7 +1,7 @@
 import os
 import aiohttp
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Union, List
 from dotenv import load_dotenv
 from livekit import api
@@ -165,16 +165,23 @@ async def get_dashboard_stats():
 async def get_recent_calls():
     if not supabase: return []
     try:
-        # Hacemos un join manual o usamos la relación si está definida en Supabase
-        # Aquí asumimos que traemos datos y procesamos, o usamos stored procedure
         response = supabase.table("encuestas").select("*").order("fecha", desc=True).limit(50).execute()
-        
-        # Enriquecer con nombre de campaña si es posible (requiere call_id en leads)
-        # Por simplicidad, devolvemos directo
         return response.data
     except Exception as e:
         print(f"Error recent calls: {e}")
         return []
+
+@app.get("/api/results")
+async def get_all_results():
+    if not supabase: return []
+    try:
+        # Traemos todos los resultados de encuestas
+        response = supabase.table("encuestas").select("*").order("fecha", desc=True).execute()
+        return response.data
+    except Exception as e:
+        print(f"Error getting results: {e}")
+        return []
+
 
 # --- ALERTAS ---
 @app.get("/api/alerts")
@@ -199,7 +206,7 @@ async def finalizar_llamada(req: CallEndRequest):
 async def guardar_encuesta(datos: EncuestaData):
     if not supabase: return {"status": "error", "message": "No DB connection"}
     
-    print(f"📝 Guardando datos encuesta {datos.id_encuesta}: {datos}")
+    print(f"📥 [API] Recibiendo datos encuesta {datos.id_encuesta}: {datos.model_dump(exclude_none=True)}")
     
     update_data = {}
     
@@ -271,7 +278,7 @@ async def make_outbound_call(request: dict):
             encuesta_data = {
                 "telefono": phone,
                 "nombre_cliente": "Prueba Dashboard",
-                "fecha": datetime.utcnow().isoformat(),
+                "fecha": datetime.now(timezone.utc).isoformat(),
                 "status": "initiated",
                 "completada": 0
             }
@@ -522,7 +529,7 @@ async def process_campaigns():
                     encuesta_data = {
                         "telefono": phone,
                         "nombre_cliente": name,
-                        "fecha": datetime.utcnow().isoformat(),
+                        "fecha": datetime.now(timezone.utc).isoformat(),
                         "status": "initiated",
                         "completada": 0
                     }

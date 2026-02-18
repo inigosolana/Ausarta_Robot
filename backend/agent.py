@@ -60,11 +60,17 @@ if SUPABASE_URL and SUPABASE_KEY:
         logger.error(f"❌ Error conectando a Supabase desde el agente: {e}")
 
 class DefaultAgent(Agent):
-    def __init__(self, room_name: str, instructions: Optional[str] = None) -> None:
+    def __init__(self, room_name: str, instructions: Optional[str] = None, llm_model_name: Optional[str] = None) -> None:
         self.server_url = os.getenv("BRIDGE_SERVER_URL", "http://127.0.0.1:8001")
+        self.llm_model_name = llm_model_name
         
         try:
-            self.survey_id = room_name.split('_')[-1]
+            # Sala format: 'encuesta_ID_TIMESTAMP'
+            parts = room_name.split('_')
+            if len(parts) >= 2:
+                self.survey_id = parts[1]
+            else:
+                self.survey_id = parts[-1] 
         except:
             self.survey_id = "0"
 
@@ -122,6 +128,7 @@ class DefaultAgent(Agent):
             "nota_instalador": nota_instalador,
             "nota_rapidez": nota_rapidez,
             "comentarios": comentarios,
+            "llm_model": self.llm_model_name
         }
         
         asyncio.create_task(self._fire_and_forget_save(url, payload))
@@ -242,7 +249,11 @@ async def entrypoint(ctx: JobContext):
         )
 
         # Configurar instancia del agente con prompt de la DB
-        agent_instance = DefaultAgent(room_name=ctx.room.name, instructions=instructions)
+        agent_instance = DefaultAgent(
+            room_name=ctx.room.name, 
+            instructions=instructions,
+            llm_model_name=llm_model
+        )
         
         # Guardamos el saludo para usarlo en la llamada si es necesario
         # (Depende de cómo manejes el inicio de la conversación)
