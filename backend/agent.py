@@ -196,20 +196,34 @@ async def entrypoint(ctx: JobContext):
     tts_model = "sonic-multilingual"
     tts_voice = "6511153f-72f9-4314-a204-8d8d8afd646a" # Default
     
+    # Prompt / Instrucciones
+    instructions = "Eres Dakota, operadora de voz de Ausarta."
+    greeting = "Buenas, llamo de Ausarta para una encuesta rápida de calidad."
+
     if supabase:
         try:
-            res = supabase.table("ai_config").select("*").limit(1).execute()
-            if res.data:
-                config = res.data[0]
+            # 1. Cargar LLM / TTS Config
+            res_ai = supabase.table("ai_config").select("*").limit(1).execute()
+            if res_ai.data:
+                config = res_ai.data[0]
                 llm_provider = config.get("llm_provider", "openai")
                 llm_model = config.get("llm_model", "gpt-4o-mini")
                 tts_provider = config.get("tts_provider", "cartesia")
                 tts_model = config.get("tts_model", "sonic-multilingual")
                 tts_voice = config.get("tts_voice", tts_voice)
-                
-                logger.info(f"⚙️ Configuración Dinámica:")
-                logger.info(f"   - LLM: {llm_provider} ({llm_model})")
-                logger.info(f"   - TTS: {tts_provider} ({tts_model}) | Voz: {tts_voice}")
+            
+            # 2. Cargar Instrucciones / Prompt
+            res_agent = supabase.table("agent_config").select("*").limit(1).execute()
+            if res_agent.data:
+                agent = res_agent.data[0]
+                instructions = agent.get("instructions", instructions)
+                greeting = agent.get("greeting", greeting)
+
+            logger.info(f"⚙️ Configuración Dinámica CARGADA de Supabase:")
+            logger.info(f"   - LLM: {llm_provider} ({llm_model})")
+            logger.info(f"   - TTS: {tts_provider} ({tts_model}) | Voz: {tts_voice}")
+            logger.info(f"   - Prompt: {len(instructions)} caracteres")
+
         except Exception as e:
             logger.warning(f"⚠️ No se pudo cargar configuración dinámica, usando defaults: {e}")
 
@@ -252,6 +266,13 @@ async def entrypoint(ctx: JobContext):
             preemptive_generation=True, 
         )
 
+        # Configurar instancia del agente con prompt de la DB
+        agent_instance = DefaultAgent(room_name=ctx.room.name)
+        agent_instance.instructions = instructions # Sobrescribimos
+        
+        # Guardamos el saludo para usarlo en la llamada si es necesario
+        # (Depende de cómo manejes el inicio de la conversación)
+        
         # --- MONITORIZACIÓN EN TIEMPO REAL ---
         
         @session.on("user_speech_committed")
@@ -274,7 +295,7 @@ async def entrypoint(ctx: JobContext):
         # --- INICIO DE SESIÓN ---
 
         await session.start(
-            agent=DefaultAgent(room_name=ctx.room.name),
+            agent=agent_instance,
             room=ctx.room,
             room_options=room_io.RoomOptions(
                 audio_input=room_io.AudioInputOptions(

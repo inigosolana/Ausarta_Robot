@@ -292,6 +292,8 @@ async def make_outbound_call(request: dict):
 
         # 3. Dial Out
         print(f"☎️ [API] Marcando vía SIP a {phone} en sala {room_name}...")
+        # 3. Dial Out
+        print(f"☎️ [API] Marcando vía SIP a {phone} en sala {room_name}...")
         await lkapi.sip.create_sip_participant(api.CreateSIPParticipantRequest(
             sip_trunk_id=sip_trunk_id,
             sip_call_to=phone,
@@ -299,6 +301,17 @@ async def make_outbound_call(request: dict):
             participant_identity=f"user_{phone}_{int(time.time())}",
             participant_name="Test User"
         ))
+
+        # 4. FORZAR UNIÓNN DEL AGENTE (Job Dispatch)
+        # Esto asegura que LiveKit mande al agente Dakota-1ef9 a la sala inmediatamente
+        print(f"🚀 [API] Solicitando despacho de agente 'Dakota-1ef9' a sala {room_name}...")
+        try:
+            await lkapi.agent.dispatch_job(api.DispatchJobRequest(
+                agent_name="Dakota-1ef9",
+                room=room_name
+            ))
+        except Exception as e:
+            print(f"⚠️ [API] No se pudo forzar despacho (puede que ya exista regla): {e}")
 
         return {"status": "ok", "roomName": room_name, "callId": encuesta_id}
         
@@ -324,6 +337,11 @@ async def get_agents():
         print(f"Error getting agents: {e}")
         return []
 
+@app.get("/api/prompts")
+async def get_prompts_alias():
+    """Alias para que el frontend pueda cargar las instrucciones si usa este endpoint"""
+    return await get_agents()
+
 @app.put("/api/agents/{agent_id}")
 async def update_agent(agent_id: str, config: dict):
     if not supabase: return {"error": "No DB"}
@@ -331,15 +349,12 @@ async def update_agent(agent_id: str, config: dict):
         # Ignoramos el ID de la URL y actualizamos el ÚNICO agente que tenemos
         curr = supabase.table("agent_config").select("id").limit(1).execute()
         
-        # Mapeamos campos si el frontend manda nombres distintos (ej: cammelCase vs snake_case)
-        # El frontend manda: name, useCase, description, instructions, greeting
-        
         db_config = {}
         if "name" in config: db_config["name"] = config["name"]
         if "instructions" in config: db_config["instructions"] = config["instructions"]
         if "greeting" in config: db_config["greeting"] = config["greeting"]
         if "description" in config: db_config["description"] = config["description"]
-        if "useCase" in config: db_config["use_case"] = config["useCase"] # CAMBIO IMPORTANTE
+        if "useCase" in config: db_config["use_case"] = config["useCase"] 
         
         db_config["updated_at"] = datetime.utcnow().isoformat()
         
