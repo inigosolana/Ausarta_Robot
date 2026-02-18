@@ -32,18 +32,6 @@ from livekit.plugins import (
 )
 from supabase import create_client, Client
 
-# --- CONFIGURACIÓN DE BASE DE DATOS (Supabase) ---
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase: Client = None
-
-if SUPABASE_URL and SUPABASE_KEY:
-    try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        logger.info(f"✅ Agente conectado a Supabase para configuración dinámica")
-    except Exception as e:
-        logger.error(f"❌ Error conectando a Supabase desde el agente: {e}")
-
 # --- CONFIGURACIÓN DE LOGS ---
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -58,6 +46,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("agent-Dakota")
 load_dotenv()
+
+# --- CONFIGURACIÓN DE BASE DE DATOS (Supabase) ---
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = None
+
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info(f"✅ Agente conectado a Supabase para configuración dinámica")
+    except Exception as e:
+        logger.error(f"❌ Error conectando a Supabase desde el agente: {e}")
 
 class DefaultAgent(Agent):
     def __init__(self, room_name: str) -> None:
