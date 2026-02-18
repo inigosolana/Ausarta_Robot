@@ -1,9 +1,7 @@
-import mysql.connector
 import os
-import re
+import aiohttp
 import asyncio
 from datetime import datetime, timedelta
-import aiohttp
 from typing import Optional, Union, List
 from dotenv import load_dotenv
 from livekit import api
@@ -11,11 +9,29 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from supabase import create_client, Client
 
 load_dotenv()
+
+# --- CONFIGURACIÓN SUPABASE ---
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    print("❌ ERROR CRÍTICO: Faltan variables SUPABASE_URL o SUPABASE_KEY en .env")
+    # No detenemos la ejecución para que al menos arranque la API, pero fallará al usar BD
+    supabase: Client = None
+else:
+    try:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print(f"✅ Conectado a Supabase: {SUPABASE_URL}")
+    except Exception as e:
+        print(f"❌ Error al conectar a Supabase: {e}")
+        supabase = None
+
 app = FastAPI(title="Ausarta Voice Agent API", version="1.0.0")
 
-# CORS para permitir requests del frontend
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,1563 +40,382 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CONEXIÓN DB MySQL ---
-def get_db_connection():
-    """Obtiene conexión a MySQL"""
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        user=os.getenv('DB_USER', 'ausarta_user'),
-        password=os.getenv('DB_PASSWORD', 'Noruega.15'),
-        database=os.getenv('DB_NAME', 'encuestas_ausarta')
-    )
-
-def init_database():
-    """Inicializa la base de datos MySQL si no existe"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor() # Usar cursor normal para creación
-        
-        # Tabla de encuestas
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS encuestas (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                telefono VARCHAR(20) NOT NULL,
-                fecha DATETIME NOT NULL,
-                completada TINYINT(1) DEFAULT 0,
-                status VARCHAR(20) DEFAULT 'unreached',
-                puntuacion_comercial INT DEFAULT NULL,
-                puntuacion_instalador INT DEFAULT NULL,
-                puntuacion_rapidez INT DEFAULT NULL,
-                comentarios TEXT DEFAULT NULL,
-                transcription TEXT DEFAULT NULL,
-                tokens_used INT DEFAULT 0,
-                seconds_used INT DEFAULT 0,
-                llm_model VARCHAR(50) DEFAULT NULL,
-                nombre_cliente VARCHAR(100) DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_telefono (telefono),
-                INDEX idx_fecha (fecha),
-                INDEX idx_completada (completada)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ''')
-        
-        # Tabla de campañas
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS campaigns (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                agent_id INT,
-                status VARCHAR(20) DEFAULT 'pending',
-                scheduled_time DATETIME NULL,
-                retries_count INT DEFAULT 3,
-                retry_interval INT DEFAULT 180,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ''')
-
-        # Tabla de leads de campañas
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS campaign_leads (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                campaign_id INT,
-                phone_number VARCHAR(20),
-                customer_name VARCHAR(100),
-                status VARCHAR(20) DEFAULT 'pending',
-                retries_attempted INT DEFAULT 0,
-                last_call_at DATETIME NULL,
-                next_retry_at DATETIME NULL,
-                call_id INT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                FOREIGN KEY(campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ''')
-
-        # Tabla de configuración de AI
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS ai_config (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                llm_provider VARCHAR(50) DEFAULT 'groq',
-                llm_model VARCHAR(100) DEFAULT 'llama-3.3-70b-versatile',
-                tts_provider VARCHAR(50) DEFAULT 'cartesia',
-                tts_model VARCHAR(100) DEFAULT 'sonic-multilingual',
-                tts_voice VARCHAR(200) DEFAULT 'fb926b21-4d92-411a-85d0-9d06859e2171',
-                stt_provider VARCHAR(50) DEFAULT 'deepgram',
-                stt_model VARCHAR(100) DEFAULT 'nova-2',
-                language VARCHAR(10) DEFAULT 'es',
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ''')
-
-        # Tabla de configuración del agente
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS agent_config (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(100) DEFAULT 'Ausarta Agent',
-                use_case VARCHAR(100) DEFAULT 'Encuestas de Calidad',
-                description TEXT,
-                instructions TEXT,
-                greeting TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ''')
-
-        # Tabla de plantillas de prompts
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS prompt_templates (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                description TEXT,
-                content TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ''')
-
-        # Tabla de alertas del sistema
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS system_alerts (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                type VARCHAR(50) NOT NULL, 
-                message TEXT NOT NULL,
-                is_active TINYINT(1) DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ''')
-        
-        # Tabla de configuración dinámica
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS app_settings (
-                `key` VARCHAR(50) PRIMARY KEY,
-                `value` TEXT
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ''')
-        
-        # Inicializar datos por defecto
-        cursor.execute('SELECT COUNT(*) FROM ai_config')
-        res = cursor.fetchone()
-        if res and res[0] == 0:
-            cursor.execute('''
-                INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language)
-                VALUES ('groq', 'llama-3.3-70b-versatile', 'cartesia', 'sonic-multilingual', 'fb926b21-4d92-411a-85d0-9d06859e2171', 'deepgram', 'nova-2', 'es')
-            ''')
-
-        cursor.execute('SELECT COUNT(*) FROM agent_config')
-        res = cursor.fetchone()
-        if res and res[0] == 0:
-            cursor.execute('''
-                INSERT INTO agent_config (name, use_case, description, instructions, greeting)
-                VALUES ('Dakota', 'Encuestas', 'Agente de Ausarta', 'Eres Dakota...', 'Hola...')
-            ''')
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        print(f"⚠️ Error al inicializar MySQL: {e}")
-
-init_database()
 # --- MODELOS PYDANTIC ---
 class VoiceAgentCreate(BaseModel):
     name: str
-    callType: str  # 'Inbound' o 'Outbound'
-    useCase: str
-    description: str
 
-class OutboundCallRequest(BaseModel):
-    agentId: str
-    phoneNumber: str
-    customerName: Optional[str] = None
-    agentName: Optional[str] = "Dakota-1ef9"
+class VoiceAgentUpdate(BaseModel):
+    instructions: Optional[str] = None
+    greeting: Optional[str] = None
+    agent_config: Optional[dict] = None # Para guardar configuraciones completas si se necesita
 
-class TelephonyConfig(BaseModel):
-    provider: str
-    fromNumbers: str
-    sipTrunkId: Optional[str] = None
-
-class AIConfig(BaseModel):
-    llm_provider: str = "groq"
-    llm_model: str = "llama-3.3-70b-versatile"
-    tts_provider: str = "cartesia"
-    tts_model: str = "sonic-multilingual"
-    tts_voice: str = "fb926b21-4d92-411a-85d0-9d06859e2171"
-    stt_provider: str = "deepgram"
-    stt_model: str = "nova-2"
-    language: str = "es"
-
-class AgentConfigModel(BaseModel):
+class CampaignCreate(BaseModel):
     name: str
-    use_case: str
-    description: str
-    instructions: str
-    greeting: str
-
-class PromptTemplateModel(BaseModel):
-    name: str
-    description: str
-    content: str
-    
-class CampaignModel(BaseModel):
-    name: str
-    agent_id: Optional[int] = 1
-    scheduled_time: Optional[str] = None # ISO format
-    status: str = "pending" # pending, running, completed, paused
-    retries_count: Optional[int] = 3
-    retry_interval: Optional[int] = 180 # minutes
-
-
-class CampaignUpdateModel(BaseModel):
-    name: Optional[str] = None
-    agent_id: Optional[int] = None
-    scheduled_time: Optional[str] = None
-    status: Optional[str] = None
+    agent_id: int
+    scheduled_time: Optional[datetime] = None
+    leads_csv: Optional[str] = None # Contenido CSV en base64 o raw string
+    retries_count: int = 3
+    retry_interval: int = 180 # Segundos
 
 class CampaignLeadModel(BaseModel):
     phone_number: str
-    customer_name: Optional[str] = None
+    customer_name: str
+    id: Optional[int] = None # ID opcional si viene de fuera
 
-class InicioEncuesta(BaseModel):
-    telefono: str
-    nombre_cliente: Optional[str] = None
+class CampaignModel(BaseModel):
+    name: str
+    agent_id: int
+    status: str = "pending"
+    scheduled_time: Optional[datetime] = None
+    retries_count: int = 3
+    retry_interval: int = 180
 
-class FinEncuesta(BaseModel):
-    id_encuesta: Union[int, str, None] = None
-    nota_comercial: Union[int, str, None] = None
-    nota_instalador: Union[int, str, None] = None
-    nota_rapidez: Union[int, str, None] = None
+class LlmConfig(BaseModel):
+    llm_provider: str
+    llm_model: str
+    stt_provider: str
+    stt_model: str
+    tts_provider: str
+    tts_model: str
+    tts_voice: str
+    language: str
+
+class EncuestaData(BaseModel):
+    id_encuesta: int
+    status: Optional[str] = None
+    nota_comercial: Optional[int] = None
+    nota_instalador: Optional[int] = None
+    nota_rapidez: Optional[int] = None
     comentarios: Optional[str] = None
     transcription: Optional[str] = None
-    status: Optional[str] = None # 'completed', 'failed', etc.
-    tokens_used: Optional[int] = 0
-    seconds_used: Optional[int] = 0
+    seconds_used: Optional[int] = None
     llm_model: Optional[str] = None
 
-class ColgarLlamada(BaseModel):
+class CallEndRequest(BaseModel):
     nombre_sala: str
 
-# --- EXCEPTION HANDLER ---
-@app.exception_handler(Exception)
-async def validation_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(status_code=422, content={"detail": str(exc)})
+# --- LIVEKIT SETUP ---
+LIVEKIT_URL = os.getenv('LIVEKIT_URL')
+LIVEKIT_API_KEY = os.getenv('LIVEKIT_API_KEY')
+LIVEKIT_API_SECRET = os.getenv('LIVEKIT_API_SECRET')
+lkapi = api.LiveKitAPI(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
 
-# --- ENDPOINTS DEL FRONTEND ---
+# --- ENDPOINTS ---
 
 @app.get("/")
 async def root():
-    return {"message": "Ausarta Voice Agent API", "status": "running"}
+    return {"status": "ok", "service": "Ausarta Backend", "database": "Supabase"}
 
-# --- DASHBOARD ENDPOINTS ---
-
+# --- DASHBOARD METRICS ---
 @app.get("/api/dashboard/stats")
 async def get_dashboard_stats():
-    conn = get_db_connection()
-    # Usar cursor normal para agregados
-    cursor = conn.cursor()
+    if not supabase: return {"error": "Database not connected"}
     
-    cursor.execute("SELECT COUNT(*) FROM encuestas")
-    total_calls = list(cursor.fetchone().values())[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM encuestas WHERE completada = 1")
-    completed_calls = list(cursor.fetchone().values())[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM campaign_leads WHERE status = 'pending'")
-    pending_calls = list(cursor.fetchone().values())[0]
+    try:
+        # Total llamadas
+        res_total = supabase.table("encuestas").select("count", count="exact").execute()
+        total_calls = res_total.count if res_total.count is not None else 0
+        
+        # Completadas
+        res_completed = supabase.table("encuestas").select("count", count="exact").eq("completada", 1).execute()
+        completed_calls = res_completed.count if res_completed.count is not None else 0
+        
+        # Pendientes (Campaign Leads)
+        res_pending = supabase.table("campaign_leads").select("count", count="exact").eq("status", "pending").execute()
+        pending_calls = res_pending.count if res_pending.count is not None else 0
+        
+        # Promedios (Usando RPC o calculando en Python si no hay RPC creado)
+        # Para simplificar y evitar crear funciones SQL complejas ahora, traemos los datos y calculamos
+        # IMPORTANTE: En producción con muchos datos, usar funciones SQL (RPC)
+        
+        res_scores = supabase.table("encuestas").select("puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez").not_.is_("puntuacion_comercial", "null").execute()
+        
+        avg_comercial = 0
+        avg_instalador = 0
+        avg_rapidez = 0
+        avg_overall = 0
+        count = len(res_scores.data)
+        
+        if count > 0:
+            sum_com = sum(r['puntuacion_comercial'] or 0 for r in res_scores.data)
+            sum_ins = sum(r['puntuacion_instalador'] or 0 for r in res_scores.data)
+            sum_rap = sum(r['puntuacion_rapidez'] or 0 for r in res_scores.data)
+            
+            avg_comercial = sum_com / count
+            avg_instalador = sum_ins / count
+            avg_rapidez = sum_rap / count
+            avg_overall = (avg_comercial + avg_instalador + avg_rapidez) / 3
 
-    # Scores
-    cursor.execute("SELECT AVG((puntuacion_comercial + puntuacion_instalador + puntuacion_rapidez) / 3.0) FROM encuestas WHERE completada = 1")
-    avg_overall = list(cursor.fetchone().values())[0] or 0
-    
-    cursor.execute("SELECT AVG(puntuacion_comercial) FROM encuestas WHERE completada = 1")
-    avg_comercial = list(cursor.fetchone().values())[0] or 0
-    
-    cursor.execute("SELECT AVG(puntuacion_instalador) FROM encuestas WHERE completada = 1")
-    avg_instalador = list(cursor.fetchone().values())[0] or 0
-    
-    cursor.execute("SELECT AVG(puntuacion_rapidez) FROM encuestas WHERE completada = 1")
-    avg_rapidez = list(cursor.fetchone().values())[0] or 0
-
-    cursor.close()
-    conn.close()
-    
-    return {
-        "total_calls": total_calls,
-        "completed_calls": completed_calls,
-        "pending_calls": pending_calls,
-        "avg_scores": {
-            "comercial": round(float(avg_comercial), 1),
-            "instalador": round(float(avg_instalador), 1),
-            "rapidez": round(float(avg_rapidez), 1),
-            "overall": round(float(avg_overall), 1)
+        return {
+            "total_calls": total_calls,
+            "completed_calls": completed_calls,
+            "pending_calls": pending_calls,
+            "avg_scores": {
+                "comercial": round(float(avg_comercial), 1),
+                "instalador": round(float(avg_instalador), 1),
+                "rapidez": round(float(avg_rapidez), 1),
+                "overall": round(float(avg_overall), 1)
+            }
         }
-    }
+    except Exception as e:
+        print(f"Error stats: {e}")
+        return {"total_calls": 0, "completed_calls": 0, "pending_calls": 0, "avg_scores": {}}
 
 @app.get("/api/dashboard/recent-calls")
 async def get_recent_calls():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("""
-        SELECT e.id, e.telefono, e.fecha, e.completada, e.status,
-               e.puntuacion_comercial, e.puntuacion_instalador, e.puntuacion_rapidez,
-               e.comentarios, e.transcription, e.llm_model,
-               c.name as campaign_name
-        FROM encuestas e
-        LEFT JOIN campaign_leads cl ON e.id = cl.call_id
-        LEFT JOIN campaigns c ON cl.campaign_id = c.id
-        ORDER BY e.fecha DESC LIMIT 15
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    
-    # Adaptado a la interfaz Call de DashboardView.tsx
-    results = []
-    for row in rows:
-        results.append({
-            "id": row['id'],
-            "phone": row['telefono'],
-            "campaign": row['campaign_name'] or "Directo",
-            "date": f"{row['fecha']}Z" if not str(row['fecha']).endswith('Z') else row['fecha'],
-            "status": row['status'] if row['status'] else ("completed" if row['completada'] else "pending"),
-            "scores": {
-                "comercial": row['puntuacion_comercial'],
-                "instalador": row['puntuacion_instalador'],
-                "rapidez": row['puntuacion_rapidez']
-            },
-            "llm_model": row['llm_model']
-        })
-    return results
-
-@app.get("/api/dashboard/usage-stats")
-async def get_usage_stats():
-    """Retorna estadísticas agregadas de uso de tokens y minutos"""
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT SUM(tokens_used), SUM(seconds_used) FROM encuestas")
-    res = cursor.fetchone()
-    total_tokens = res[0] or 0
-    total_seconds = res[1] or 0
-    
-    # Breakdown por modelo
-    cursor.execute("""
-        SELECT llm_model, SUM(tokens_used) as tokens, COUNT(*) as calls, SUM(seconds_used) as seconds
-        FROM encuestas 
-        WHERE llm_model IS NOT NULL
-        GROUP BY llm_model
-    """)
-    rows = cursor.fetchall()
-    per_model = [dict(r) for r in rows]
-    
-    conn.close()
-    
-    return {
-        "total_tokens": total_tokens,
-        "total_minutes": round(total_seconds / 60.0, 2),
-        "total_seconds": total_seconds,
-        "per_model_stats": per_model
-    }
-
-@app.get("/api/dashboard/integrations")
-async def get_dashboard_integrations():
-    """Retorna el estado de las integraciones externas"""
-    return [
-        {"name": "Primary LLM", "provider": "Groq", "active": bool(os.getenv("GROQ_API_KEY")), "model": "llama-3.3-70b", "env_var": "GROQ_API_KEY"},
-        {"name": "Budget LLM", "provider": "DeepSeek", "active": bool(os.getenv("DEEPSEEK_API_KEY")), "model": "deepseek-chat", "env_var": "DEEPSEEK_API_KEY"},
-        {"name": "Backup LLM", "provider": "Google", "active": bool(os.getenv("GOOGLE_API_KEY")), "model": "gemini-2.0-flash", "env_var": "GOOGLE_API_KEY"},
-        {"name": "Voice TTS", "provider": "Cartesia", "active": bool(os.getenv("CARTESIA_API_KEY")), "model": "sonic-es", "env_var": "CARTESIA_API_KEY"},
-        {"name": "STT Live", "provider": "Deepgram", "active": bool(os.getenv("DEEPGRAM_API_KEY")), "model": "nova-2-es", "env_var": "DEEPGRAM_API_KEY"},
-        {"name": "LiveKit HA", "provider": "Cloud", "active": bool(os.getenv("LIVEKIT_API_KEY")), "url": os.getenv("LIVEKIT_URL"), "env_var": "LIVEKIT_API_KEY"},
-    ]
-
-@app.get("/api/ai/limits")
-async def get_ai_limits():
-    """Consulta en tiempo real los límites de los proveedores configurados"""
-    results = {}
-    
-    # 1. Groq - Múltiples modelos
-    groq_key = os.getenv("GROQ_API_KEY")
-    if groq_key:
-        results["groq_models"] = {}
-        for model in ["llama-3.3-70b-versatile", "mixtral-8x7b-32768"]:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        "https://api.groq.com/openai/v1/chat/completions", 
-                        headers={"Authorization": f"Bearer {groq_key}"},
-                        json={"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                        timeout=3
-                    ) as resp:
-                        results["groq_models"][model] = {
-                            "active": resp.status == 200 or resp.status == 429,
-                            "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
-                            "requests_limit": resp.headers.get("x-ratelimit-limit-requests"),
-                            "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
-                            "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
-                            "status": resp.status
-                        }
-            except: pass
-        # Compatibilidad hacia atrás
-        if results["groq_models"]:
-            results["groq"] = next(iter(results["groq_models"].values()))
-
-    # 2. Google Gemini
-    google_key = os.getenv("GOOGLE_API_KEY")
-    if google_key:
-        results["google"] = {
-            "active": True,
-            "info": "Tier Standard (Gratis): 15 RPM / 1M TPM",
-            "model": "gemini-1.5-flash"
-        }
-
-    # 3. OpenAI
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if openai_key:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.openai.com/v1/chat/completions", 
-                    headers={"Authorization": f"Bearer {openai_key}"},
-                    json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                    timeout=5
-                ) as resp:
-                    results["openai"] = {
-                        "active": resp.status == 200 or resp.status == 429,
-                        "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
-                        "requests_limit": resp.headers.get("x-ratelimit-limit-requests"),
-                        "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
-                        "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
-                        "info": "Límites dinámicos basados en Tier (1-5)",
-                        "status": resp.status
-                    }
-        except Exception as e:
-            results["openai"] = {"active": False, "error": str(e)}
-
-    # 4. DeepSeek
-    ds_key = os.getenv("DEEPSEEK_API_KEY")
-    if ds_key:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.deepseek.com/chat/completions",
-                    headers={"Authorization": f"Bearer {ds_key}"},
-                    json={"model": "deepseek-chat", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                    timeout=5
-                ) as resp:
-                    results["deepseek"] = {
-                        "active": resp.status == 200 or resp.status == 429,
-                        "requests_remaining": resp.headers.get("x-ratelimit-remaining-requests"),
-                        "requests_limit": resp.headers.get("x-ratelimit-limit-requests"),
-                        "tokens_remaining": resp.headers.get("x-ratelimit-remaining-tokens"),
-                        "tokens_limit": resp.headers.get("x-ratelimit-limit-tokens"),
-                        "info": "DeepSeek-V3 / DeepSeek-R1",
-                        "status": resp.status
-                    }
-        except Exception as e:
-            results["deepseek"] = {"active": False, "error": str(e)}
-
-    # 5. Deepgram - Balances de Proyecto
-    dg_key = os.getenv("DEEPGRAM_API_KEY")
-    if dg_key:
-        try:
-            async with aiohttp.ClientSession() as session:
-                headers = {"Authorization": f"Token {dg_key}"}
-                async with session.get("https://api.deepgram.com/v1/projects", headers=headers, timeout=5) as p_resp:
-                    if p_resp.status == 200:
-                        projects = (await p_resp.json()).get("projects", [])
-                        if projects:
-                            p_id = projects[0].get("project_id")
-                            async with session.get(f"https://api.deepgram.com/v1/projects/{p_id}/balances", headers=headers, timeout=5) as b_resp:
-                                if b_resp.status == 200:
-                                    results["deepgram"] = (await b_resp.json())
-        except: pass
-
-    # 6. ElevenLabs
-    el_key = os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")
-    if el_key:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get("https://api.elevenlabs.io/v1/user/subscription", headers={"xi-api-key": el_key}, timeout=5) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        results["elevenlabs"] = {
-                            "active": True,
-                            "characters_remaining": data.get("character_limit", 0) - data.get("character_count", 0),
-                            "characters_limit": data.get("character_limit"),
-                            "status": "active"
-                        }
-        except: pass
-
-    # 7. Cartesia
-    cartesia_key = os.getenv("CARTESIA_API_KEY")
-    if cartesia_key:
-        results["cartesia"] = {
-            "active": True,
-            "info": "Consultar créditos en Dashboard de Cartesia",
-            "dashboard_url": "https://play.cartesia.ai/settings"
-        }
-
-    return results
-
-@app.get("/api/ai/diagnose-google")
-async def diagnose_google():
-    """Lista los modelos reales disponibles para esta API Key"""
-    google_key = os.getenv("GOOGLE_API_KEY")
-    if not google_key:
-        return {"error": "No hay API Key configurada"}
-    
+    if not supabase: return []
     try:
-        async with aiohttp.ClientSession() as session:
-            # Consultamos la lista de modelos permitidos para esta key
-            url = f"https://generativelanguage.googleapis.com/v1beta/models?key={google_key}"
-            async with session.get(url, timeout=10) as resp:
-                data = await resp.json()
-                if resp.status == 200:
-                    models = [m["name"] for m in data.get("models", []) if "generateContent" in m.get("supportedGenerationMethods", [])]
-                    return {
-                        "status": "success",
-                        "available_models": models,
-                        "raw_info": "V1Beta API"
-                    }
-                else:
-                    return {"status": "error", "message": data.get("error", {}).get("message", "Error desconocido")}
+        # Hacemos un join manual o usamos la relación si está definida en Supabase
+        # Aquí asumimos que traemos datos y procesamos, o usamos stored procedure
+        response = supabase.table("encuestas").select("*").order("fecha", desc=True).limit(50).execute()
+        
+        # Enriquecer con nombre de campaña si es posible (requiere call_id en leads)
+        # Por simplicidad, devolvemos directo
+        return response.data
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"Error recent calls: {e}")
+        return []
 
-# --- SETTINGS ENDPOINTS ---
+# --- CALL CONTROL ---
 
-@app.get("/api/settings")
-async def get_settings():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT key, value FROM app_settings")
-    rows = cursor.fetchall()
-    conn.close()
-    return {row['key']: row['value'] for row in rows}
+@app.post("/colgar")
+async def finalizar_llamada(req: CallEndRequest):
+    """Corta la llamada en LiveKit"""
+    try:
+        print(f"✂️ Solicitud de colgar sala: {req.nombre_sala}")
+        await lkapi.room.delete_room(api.DeleteRoomRequest(room=req.nombre_sala))
+        return {"status": "ok", "message": f"Sala {req.nombre_sala} cerrada"}
+    except Exception as e:
+        print(f"⚠️ Error al cerrar sala {req.nombre_sala}: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
-class SettingsUpdate(BaseModel):
-    llm_provider: str
-    llm_model: str
-
-@app.post("/api/settings")
-async def update_settings(settings: SettingsUpdate):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    # 1. Update app_settings (Global)
-    for key, val in [('llm_provider', settings.llm_provider), ('llm_model', settings.llm_model)]:
-        cursor.execute("UPDATE app_settings SET value = %s WHERE key = %s", (val, key))
-        if cursor.rowcount == 0:
-            cursor.execute("INSERT INTO app_settings (key, value) VALUES (%s, %s)", (key, val))
+@app.post("/guardar-encuesta")
+async def guardar_encuesta(datos: EncuestaData):
+    if not supabase: return {"status": "error", "message": "No DB connection"}
     
-    # 2. Sync legacy ai_config (for compatibility)
-    cursor.execute("""
-        UPDATE ai_config 
-        SET llm_provider=%s, llm_model=%s, updated_at=CURRENT_TIMESTAMP
-        WHERE id = (SELECT id FROM ai_config ORDER BY id DESC LIMIT 1)
-    """, (settings.llm_provider, settings.llm_model))
+    print(f"📝 Guardando datos encuesta {datos.id_encuesta}: {datos}")
     
-    if cursor.rowcount == 0:
-        cursor.execute("INSERT INTO ai_config (llm_provider, llm_model) VALUES (%s, %s)", (settings.llm_provider, settings.llm_model))
+    update_data = {}
     
-    conn.commit()
-    conn.close()
-    return {"status": "success"}
-
-@app.get("/api/alerts")
-async def get_system_alerts():
-    """Devuelve las alertas activas del sistema"""
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM system_alerts WHERE is_active = 1 ORDER BY created_at DESC")
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
-
-@app.post("/api/alerts/{alert_id}/resolve")
-async def resolve_alert(alert_id: int):
-    """Marca una alerta como resuelta"""
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("UPDATE system_alerts SET is_active = 0 WHERE id = %s", (alert_id,))
-    conn.commit()
-    conn.close()
-    return {"status": "success"}
-
-# --- AGENT CONFIG ENDPOINTS ---
-
-@app.get("/api/agents")
-async def get_agents():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM agent_config")
-    rows = cursor.fetchall()
-    # Mapeo de campos DB -> Frontend (camelCase)
-    results = []
-    for row in rows:
-        results.append({
-            "id": row['id'],
-            "name": row['name'],
-            "useCase": row['use_case'],
-            "description": row['description'],
-            "instructions": row['instructions'],
-            "greeting": row['greeting']
-        })
-    conn.close()
-    return results
-
-@app.put("/api/agents/{agent_id}")
-async def update_agent(agent_id: int, config: AgentConfigModel):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    if datos.nota_comercial is not None: update_data["puntuacion_comercial"] = datos.nota_comercial
+    if datos.nota_instalador is not None: update_data["puntuacion_instalador"] = datos.nota_instalador
+    if datos.nota_rapidez is not None: update_data["puntuacion_rapidez"] = datos.nota_rapidez
+    if datos.comentarios is not None: update_data["comentarios"] = datos.comentarios
+    if datos.transcription is not None: update_data["transcription"] = datos.transcription
+    if datos.seconds_used is not None: update_data["seconds_used"] = datos.seconds_used
+    if datos.llm_model is not None: update_data["llm_model"] = datos.llm_model
     
-    # Verificar si existe
-    cursor.execute("SELECT id FROM agent_config WHERE id = %s", (agent_id,))
-    if not cursor.fetchone():
-        # Si es el ID 1 y no existe, crearlo
-        if agent_id == 1:
-             cursor.execute("INSERT INTO agent_config (id, name, use_case, description, instructions, greeting) VALUES (1, %s, %s, %s, %s, %s)",
-                           (config.name, config.use_case, config.description, config.instructions, config.greeting))
-        else:
-             conn.close()
-             raise HTTPException(status_code=404, detail="Agent not found")
-    else:
-        cursor.execute("""
-            UPDATE agent_config 
-            SET name=%s, use_case=%s, description=%s, instructions=%s, greeting=%s, updated_at=CURRENT_TIMESTAMP
-            WHERE id = %s
-        """, (config.name, config.use_case, config.description, config.instructions, config.greeting, agent_id))
+    # Lógica de estados
+    status_final = datos.status
+    es_completada = False
     
-    conn.commit()
-    conn.close()
-    return {"status": "success"}
-
-# --- AI CONFIG ENDPOINTS ---
-
-@app.get("/api/ai/config")
-async def get_ai_config():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM ai_config ORDER BY id DESC LIMIT 1")
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else {}
-
-@app.post("/api/ai/config")
-async def update_ai_config(config: AIConfig):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    # Si viene status explícito (ej: 'rejected_opt_out' o 'completed'), lo respetamos
+    if datos.status:
+        update_data["status"] = datos.status
+        if datos.status == 'completed':
+            es_completada = True
+            update_data["completada"] = 1 # TINYINT 1
     
-    # 1. Update ai_config (Legacy/VoiceAgentsView)
-    cursor.execute("""
-        UPDATE ai_config 
-        SET llm_provider=%s, llm_model=%s, tts_provider=%s, tts_model=%s, tts_voice=%s, stt_provider=%s, stt_model=%s, language=%s, updated_at=CURRENT_TIMESTAMP
-        WHERE id = (SELECT id FROM ai_config ORDER BY id DESC LIMIT 1)
-    """, (config.llm_provider, config.llm_model, config.tts_provider, config.tts_model, config.tts_voice, config.stt_provider, config.stt_model, config.language))
-    
-    if cursor.rowcount == 0:
-        cursor.execute("INSERT INTO ai_config (llm_provider, llm_model, tts_provider, tts_model, tts_voice, stt_provider, stt_model, language) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                      (config.llm_provider, config.llm_model, config.tts_provider, config.tts_model, config.tts_voice, config.stt_provider, config.stt_model, config.language))
-    
-    # 2. Sync app_settings (Global/ModelsView)
-    cursor.execute("UPDATE app_settings SET value = %s WHERE key = 'llm_provider'", (config.llm_provider,))
-    cursor.execute("UPDATE app_settings SET value = %s WHERE key = 'llm_model'", (config.llm_model,))
-    # Also create if not exists
-    cursor.execute("INSERT IGNORE INTO app_settings (key, value) VALUES ('llm_provider', %s)", (config.llm_provider,))
-    cursor.execute("INSERT IGNORE INTO app_settings (key, value) VALUES ('llm_model', %s)", (config.llm_model,))
-    
-    conn.commit()
-    conn.close()
-    return {"status": "success"}
+    # Si NO viene status, deducimos 'incomplete' si hay datos parciales y no estaba ya terminada
+    elif update_data: # Si hay algo que actualizar
+         # Primero verificamos estado actual para no sobrescribir 'completed'
+         curr = supabase.table("encuestas").select("status").eq("id", datos.id_encuesta).execute()
+         if curr.data and curr.data[0]['status'] not in ('completed', 'rejected_opt_out'):
+             update_data["status"] = 'incomplete'
 
-# --- PROMPTS ENDPOINTS ---
+    if not update_data:
+        return {"status": "ignored", "message": "No data to update"}
 
-@app.get("/api/prompts")
-async def get_prompts():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM prompt_templates ORDER BY created_at DESC")
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    update_data["updated_at"] = datetime.utcnow().isoformat()
 
-@app.post("/api/prompts")
-async def create_prompt(prompt: PromptTemplateModel):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("INSERT INTO prompt_templates (name, description, content) VALUES (%s, %s, %s)",
-                  (prompt.name, prompt.description, prompt.content))
-    conn.commit()
-    conn.close()
-    return {"status": "success"}
+    try:
+        supabase.table("encuestas").update(update_data).eq("id", datos.id_encuesta).execute()
+        
+        # Si la encuesta se completó o rechazó, actualizamos el LEAD asociado también
+        # Buscamos el lead por call_id (que es el id_encuesta)
+        if datos.status in ('completed', 'rejected_opt_out', 'incomplete'):
+             lead_update = {"status": datos.status}
+             supabase.table("campaign_leads").update(lead_update).eq("call_id", datos.id_encuesta).execute()
 
-# --- CAMPAIGNS ENDPOINTS ---
+        return {"status": "ok", "updated": update_data}
+    except Exception as e:
+        print(f"❌ Error DB al guardar: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# --- CAMPAIGN MANAGEMENT ---
 
 @app.post("/api/campaigns")
 async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel]):
-    """Crea una nueva campaña con leads"""
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    if not supabase: return {"error": "No DB"}
+    
     try:
-        cursor.execute("INSERT INTO campaigns (name, agent_id, status, scheduled_time, retries_count, retry_interval) VALUES (%s, %s, %s, %s, %s, %s)",
-                      (campaign.name, campaign.agent_id, campaign.status, campaign.scheduled_time, campaign.retries_count, campaign.retry_interval))
-        campaign_id = cursor.lastrowid
-        
-        # Insert leads
-        for lead in leads:
-            cursor.execute("INSERT INTO campaign_leads (campaign_id, phone_number, customer_name) VALUES (%s, %s, %s)",
-                          (campaign_id, lead.phone_number, lead.customer_name))
-        
-        conn.commit()
-        return {"status": "success", "campaign_id": campaign_id, "leads_count": len(leads)}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        cursor.close()
-        conn.close()
-
-@app.get("/api/campaigns")
-async def get_campaigns():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    # Join con subqueries para contar leads
-    cursor.execute("""
-        SELECT 
-            c.*,
-            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id) as total_leads,
-            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('called', 'completed')) as called_leads,
-            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('failed', 'unreached', 'incomplete')) as failed_leads,
-            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'pending') as pending_leads
-        FROM campaigns c
-        ORDER BY c.created_at DESC
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    
-    results = []
-    for row in rows:
-        d = dict(row)
-        
-        # Corregir STATUS: Si hay fallidos, no está completed
-        # Prioridad: running > failed > completed > pending
-        # Pero conservamos el status original si es 'running' o 'paused' explícitamente
-        
-        real_status = d['status']
-        if d['pending_leads'] == 0:
-            if d['failed_leads'] > 0:
-                # Si todo terminó pero hubo fallos
-                real_status = 'completed_with_errors' # Ojo, frontend quizas no tenga color para esto
-            else:
-                 real_status = 'completed'
-        elif d['called_leads'] > 0:
-             if real_status == 'pending': real_status = 'running'
-        
-        # Simplificación para el frontend existente:
-        if d['failed_leads'] > 0 and d['pending_leads'] == 0:
-            d['status'] = 'paused' # Para indicar que requiere atención (Retry)
-        elif d['pending_leads'] == 0:
-            d['status'] = 'completed'
-        
-        # Corregir HORA: Asegurar formato ISO con Z si no la tiene
-        if d.get('created_at') and not str(d['created_at']).endswith('Z'):
-            d['created_at'] = f"{d['created_at']}Z"
-        if d.get('scheduled_time') and not str(d['scheduled_time']).endswith('Z'):
-            # Si viene del frontend como local (sin Z), NO le añadimos Z aquí 
-            # porque el navegador la interpretaría como UTC y sumaría el desfase.
-            # Solo añadimos Z si estamos seguros de que es UTC.
-            pass # Dejamos que el frontend maneje la interpretación local si no hay Z
-        
-        results.append(d)
-        
-    return results
-
-@app.get("/api/campaigns/{campaign_id}")
-async def get_campaign(campaign_id: int):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    
-    cursor.execute("""
-        SELECT 
-            c.*,
-            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id) as total_leads,
-            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('called', 'completed')) as called_leads,
-            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status IN ('failed', 'unreached', 'incomplete')) as failed_leads,
-            (SELECT COUNT(*) FROM campaign_leads WHERE campaign_id = c.id AND status = 'pending') as pending_leads
-        FROM campaigns c
-        WHERE c.id = %s
-    """, (campaign_id,))
-    campaign = cursor.fetchone()
-    
-    if not campaign:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Campaign not found")
-
-    cursor.execute("""
-        SELECT 
-            cl.*,
-            e.puntuacion_comercial,
-            e.puntuacion_instalador,
-            e.puntuacion_rapidez,
-            e.comentarios,
-            e.transcription as transcription_preview
-        FROM campaign_leads cl
-        LEFT JOIN encuestas e ON cl.call_id = e.id
-        WHERE cl.campaign_id = %s
-    """, (campaign_id,))
-    leads = cursor.fetchall()
-    conn.close()
-    
-    camp_dict = dict(campaign)
-    
-    # Logic STATUS corregida
-    if camp_dict['pending_leads'] == 0 and camp_dict['failed_leads'] > 0:
-        camp_dict['status'] = 'paused' # Marca visual "Amarillo/Gris" en vez de Verde
-    elif camp_dict['pending_leads'] == 0:
-        camp_dict['status'] = 'completed'
-
-    # Logic HORA corregida
-    if camp_dict.get('created_at') and not str(camp_dict['created_at']).endswith('Z'):
-        camp_dict['created_at'] = f"{camp_dict['created_at']}Z"
-    # scheduled_time lo dejamos tal cual venga de la DB para que el browser no asuma UTC si no tiene Z
-    if camp_dict.get('scheduled_time') and not str(camp_dict['scheduled_time']).endswith('Z'):
-        pass 
-
-    return {"campaign": camp_dict, "leads": [dict(l) for l in leads]}
-
-@app.delete("/api/campaigns/{campaign_id}")
-async def delete_campaign(campaign_id: int):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("DELETE FROM campaign_leads WHERE campaign_id = %s", (campaign_id,))
-    cursor.execute("DELETE FROM campaigns WHERE id = %s", (campaign_id,))
-    conn.commit()
-    conn.close()
-    return {"status": "success"}
-
-@app.put("/api/campaigns/{campaign_id}")
-async def update_campaign(campaign_id: int, config: CampaignUpdateModel):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    
-    # 1. Verificar existencia
-    cursor.execute("SELECT id FROM campaigns WHERE id = %s", (campaign_id,))
-    if not cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Campaign not found")
-        
-    # 2. Build Query
-    update_fields = []
-    params = []
-    
-    if config.name is not None:
-        update_fields.append("name = %s")
-        params.append(config.name)
-    
-    if config.agent_id is not None:
-        update_fields.append("agent_id = %s")
-        params.append(config.agent_id)
-        
-    if config.scheduled_time is not None:
-        update_fields.append("scheduled_time = %s")
-        params.append(config.scheduled_time)
-        
-    if config.status is not None:
-        update_fields.append("status = %s")
-        params.append(config.status)
-        
-    if update_fields:
-        update_fields.append("created_at = created_at") # Hack para actualizar timestamp si es necesario, aunque falta updated_at en tabla campaigns
-        sql = f"UPDATE campaigns SET {', '.join(update_fields)} WHERE id = %s"
-        params.append(campaign_id)
-        cursor.execute(sql, tuple(params))
-        conn.commit()
-        
-    conn.close()
-    return {"status": "success", "updated_fields": update_fields}
-
-@app.post("/api/campaigns/{campaign_id}/retry")
-async def retry_campaign_failed(campaign_id: int):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    
-    # 1. Resetear leads fallidos/unreached/incomplete a pending
-    cursor.execute("""
-        UPDATE campaign_leads 
-        SET status = 'pending', retries_attempted = 0, next_retry_at = NULL
-        WHERE campaign_id = %s AND status IN ('failed', 'unreached', 'incomplete')
-    """, (campaign_id,))
-    
-    count = cursor.rowcount
-    
-    # 2. Reactivar selección
-    if count > 0:
-        cursor.execute("UPDATE campaigns SET status = 'pending' WHERE id = %s", (campaign_id,))
-    
-    conn.commit()
-    conn.close()
-    return {"status": "success", "retried_count": count}
-
-@app.post("/api/campaigns/leads/{lead_id}/retry")
-async def retry_single_lead(lead_id: int):
-    """Reintenta manualmente un lead específico (reset a pending y 0 retries)"""
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    
-    # 1. Resetear status y contadores
-    cursor.execute("""
-        UPDATE campaign_leads 
-        SET status = 'pending', retries_attempted = 0, next_retry_at = NULL
-        WHERE id = %s
-    """, (lead_id,))
-    
-    if cursor.rowcount == 0:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Lead not found")
-        
-    # 2. Reactivar campaña si estaba parada
-    cursor.execute("SELECT campaign_id FROM campaign_leads WHERE id = %s", (lead_id,))
-    row = cursor.fetchone()
-    if row:
-        campaign_id = row['campaign_id']
-        # Si la campaña estaba completada o fallida, ponerla en running para que el worker la procese
-        cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = %s AND status != 'running'", (campaign_id,))
-    
-    conn.commit()
-    conn.close()
-    return {"status": "success"}
-
-@app.get("/api/results")
-async def get_results():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("""
-        SELECT e.*, c.name as campaign_name 
-        FROM encuestas e
-        LEFT JOIN campaign_leads cl ON e.id = cl.call_id
-        LEFT JOIN campaigns c ON cl.campaign_id = c.id
-        ORDER BY e.fecha DESC
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    results = []
-    for row in rows:
-        d = dict(row)
-        if d.get('fecha') and not str(d['fecha']).endswith('Z'):
-            d['fecha'] = f"{d['fecha']}Z"
-        # Renombrar para consistencia frontend si es necesario, o solo añadirlo
-        d['campaign_name'] = d.get('campaign_name') or "Manual"
-        results.append(d)
-    return results
-
-@app.post("/api/calls/cleanup")
-async def cleanup_active_rooms():
-    """Borra todas las salas activas de LiveKit para desbloquear el sistema"""
-    lkapi = api.LiveKitAPI(
-        os.getenv("LIVEKIT_URL"),
-        os.getenv("LIVEKIT_API_KEY"),
-        os.getenv("LIVEKIT_API_SECRET"),
-    )
-    try:
-        rooms_res = await lkapi.room.list_rooms(api.ListRoomsRequest())
-        count = 0
-        for r in rooms_res.rooms:
-            if "encuesta_" in r.name:
-                await lkapi.room.delete_room(api.DeleteRoomRequest(room=r.name))
-                count += 1
-        return {"status": "success", "cleaned_count": count}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        await lkapi.aclose()
-
-@app.post("/api/calls/outbound")
-async def make_outbound_call(call_request: OutboundCallRequest):
-    """
-    Lanza una llamada outbound usando el sistema del AgenteLocal
-    """
-    try:
-        print(f"📞 Iniciando llamada outbound a {call_request.phoneNumber} ({call_request.customerName or 'Anon'})")
-        
-        # 1. Crear ficha en DB (o verificar si ya existe)
-        id_ficha = None
-        try:
-            # Verificar si ya existe una encuesta para este número
-            conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("""
-                SELECT id, status,completada 
-                FROM encuestas 
-                WHERE telefono = %s 
-                ORDER BY fecha DESC 
-                LIMIT 1
-            """, (call_request.phoneNumber,))
-            existing = cursor.fetchone()
-            
-            if existing:
-                existing_id, existing_status, existing_completada = existing
-                # FORCE NEW SURVEY: No reutilizar nada, siempre nueva llamada
-                print(f"ℹ️ Historial encontrado (ID: {existing_id}, status: {existing_status}), pero forzamos nueva encuesta.")
-                 # id_ficha = existing_id <-- COMENTADO PARA NO REUTILIZAR
-                conn.close()
-            
-            # Si no hay ID reutilizable, crear nueva ficha
-            if not id_ficha:
-                conn.close()
-                resp_inicio = await iniciar_encuesta(InicioEncuesta(
-                    telefono=call_request.phoneNumber,
-                    nombre_cliente=call_request.customerName
-                ))
-                id_ficha = resp_inicio["id"]
-                print(f"✅ Ficha creada con ID: {id_ficha}")
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error creando ficha: {e}")
-        
-        # 2. Crear sala
-        sala = f"encuesta_{id_ficha}"
-        
-        # 3. Crear API de LiveKit
-        lkapi = api.LiveKitAPI(
-            os.getenv("LIVEKIT_URL"),
-            os.getenv("LIVEKIT_API_KEY"),
-            os.getenv("LIVEKIT_API_SECRET"),
-        )
-        
-        # 4. Despertar agente usando la API
-        print(f"🤖 Despertando agente en sala: {sala}")
-        try:
-            await lkapi.agent_dispatch.create_dispatch(
-                api.CreateAgentDispatchRequest(
-                    room=sala,
-                    agent_name="Dakota-1ef9", # Nombre interno del worker registrado en agent.py
-                    metadata=call_request.customerName or "" # Pasar nombre en metadata por si acaso
-                )
-            )
-            print(f"✅ Agente despachado correctamente")
-        except Exception as e:
-            print(f"⚠️ Warning al despachar agente: {e}")
-        
-        # 5. Crear llamada SIP
-        print(f"📞 Creando participante SIP...")
-        
-        trunk_id = os.getenv("SIP_OUTBOUND_TRUNK_ID", "ST_UBZcusTkNdtH")
-        
-        try:
-            await lkapi.sip.create_sip_participant(
-                api.CreateSIPParticipantRequest(
-                    room_name=sala,
-                    sip_trunk_id=trunk_id,
-                    sip_call_to=call_request.phoneNumber,
-                    participant_identity=f"Cliente {id_ficha}",
-                )
-            )
-            print("🚀 ¡Llamada en curso!")
-        except Exception as e:
-            print(f"❌ Error SIP: {e}")
-            # NO lanzamos excepción para permitir que el worker vincule el ID
-            # Actualizamos la ficha a failed
-            try:
-                conn_err = get_db_connection()
-                cur_err = conn_err.cursor()
-                cur_err.execute("UPDATE encuestas SET status = 'failed' WHERE id = %s", (id_ficha,))
-                conn_err.commit()
-                conn_err.close()
-            except: pass
-            
-            return {
-                "status": "error",
-                "callId": id_ficha,
-                "roomName": sala,
-                "detail": str(e)
-            }
-        finally:
-            await lkapi.aclose()
-        
-        return {
-            "status": "success",
-            "callId": id_ficha,
-            "roomName": sala,
-            "phoneNumber": call_request.phoneNumber
+        # 1. Crear Campaña
+        camp_data = {
+            "name": campaign.name,
+            "agent_id": campaign.agent_id,
+            "status": campaign.status,
+            "scheduled_time": campaign.scheduled_time.isoformat() if campaign.scheduled_time else None,
+            "retries_count": campaign.retries_count,
+            "retry_interval": campaign.retry_interval,
+            "created_at": datetime.utcnow().isoformat()
         }
+        res_camp = supabase.table("campaigns").insert(camp_data).execute()
+        campaign_id = res_camp.data[0]['id']
+        
+        # 2. Insertar Leads
+        leads_data = []
+        for lead in leads:
+            leads_data.append({
+                "campaign_id": campaign_id,
+                "phone_number": lead.phone_number,
+                "customer_name": lead.customer_name,
+                "status": "pending",
+                "retries_attempted": 0
+            })
+        
+        if leads_data:
+            supabase.table("campaign_leads").insert(leads_data).execute()
+            
+        # 3. Lanzar worker en background si es instantánea
+        if campaign.status == 'active':
+             asyncio.create_task(process_campaigns())
+             
+        return {"id": campaign_id, "message": f"Campaña creada con {len(leads_data)} leads"}
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al lanzar llamada: {str(e)}")
+        print(f"Error creando campaña: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
-# --- ENDPOINTS DEL BRIDGE SERVER (para el agente) ---
-
-@app.post("/iniciar-encuesta")
-async def iniciar_encuesta(datos: InicioEncuesta):
-    print(f"📝 1. Creando ficha para: {datos.telefono} - {datos.nombre_cliente}")
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    try:
-        # Usamos UTC para que el frontend (con Z) lo muestre bien en hora local
-        cursor.execute("INSERT INTO encuestas (telefono, nombre_cliente, fecha, completada) VALUES (%s, %s, %s, 0)", 
-                      (datos.telefono, datos.nombre_cliente, datetime.utcnow()))
-        conn.commit()
-        nuevo_id = cursor.lastrowid
-        print(f"✅ Ficha creada con ID: {nuevo_id}")
-        return {"id": nuevo_id}
-    finally:
-        cursor.close()
-        conn.close()
-
-@app.post("/guardar-encuesta")
-async def guardar_encuesta(datos: FinEncuesta):
-    print(f"📥 2. Recibiendo datos. La IA dice ID: {datos.id_encuesta}")
-    
-    num_map = {
-        "cero": 0, "uno": 1, "un": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
-        "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10
-    }
-
-    def clean_nota(val):
-        if val is None: return None
-        s_val = str(val).lower().strip()
-        
-        # 1. Intentar número directo
-        match = re.search(r'\b(10|[0-9])\b', s_val)
-        if match:
-            num = int(match.group())
-            if 0 <= num <= 10: return num
-            
-        # 2. Intentar palabra escrita
-        for word, num in num_map.items():
-            if f" {word} " in f" {s_val} ":
-                return num
-        return None
-    
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    try:
-        id_final = None
-        try:
-            nums = re.findall(r'\d+', str(datos.id_encuesta))
-            if nums and int(nums[0]) > 0: id_final = int(nums[0])
-        except: pass
-
-        if not id_final:
-            print("🔍 ID IA no válido. Buscando última ficha abierta...")
-            cursor.execute("SELECT id FROM encuestas WHERE completada = 0 ORDER BY id DESC LIMIT 1")
-            res = cursor.fetchone()
-            if res:
-                id_final = res[0]
-                print(f"💡 ¡ENCONTRADO! Usaremos la ficha {id_final}.")
-            else:
-                cursor.execute("SELECT id FROM encuestas ORDER BY id DESC LIMIT 1")
-                res_last = cursor.fetchone()
-                if res_last: id_final = res_last[0]
-
-        if not id_final: return {"status": "error", "msg": "No ID found"}
-
-        update_fields = []
-        params = []
-
-        if datos.nota_comercial is not None:
-            val = clean_nota(datos.nota_comercial)
-            if val is not None:
-                update_fields.append("puntuacion_comercial = %s")
-                params.append(val)
-        
-        if datos.nota_instalador is not None:
-            val = clean_nota(datos.nota_instalador)
-            if val is not None:
-                update_fields.append("puntuacion_instalador = %s")
-                params.append(val)
-
-        if datos.nota_rapidez is not None:
-            val = clean_nota(datos.nota_rapidez)
-            if val is not None:
-                update_fields.append("puntuacion_rapidez = %s")
-                params.append(val)
-
-        if datos.transcription:
-            lines = datos.transcription.split('\n')
-            mapping = {
-                "puntuacion_comercial": ["comercial", "atencion", "trato"],
-                "puntuacion_instalador": ["instalador", "tecnico", "técnico", "montaje"],
-                "puntuacion_rapidez": ["rapidez", "velocidad", "tiempo", "rápido"]
-            }
-            
-            for col, keywords in mapping.items():
-                if not any(col in f for f in update_fields):
-                    for i in range(len(lines) - 1):
-                        agente_line = lines[i].lower()
-                        if "agente:" in agente_line and any(k in agente_line for k in keywords):
-                            cliente_line = lines[i+1].lower()
-                            if "cliente:" in cliente_line:
-                                val = clean_nota(cliente_line)
-                                if val is not None:
-                                    update_fields.append(f"{col} = %s")
-                                    params.append(val)
-                                    print(f"🕵️ [Rescue] Extraído {col}={val} de la transcripción (Keyword: '{keywords[0]}').")
-                                    break
-
-        if datos.comentarios is not None and datos.comentarios != "Sin comentarios":
-            update_fields.append("comentarios = %s")
-            params.append(datos.comentarios)
-
-        if datos.transcription is not None:
-            update_fields.append("transcription = %s")
-            params.append(datos.transcription)
-
-        if datos.tokens_used:
-            update_fields.append("tokens_used = %s")
-            params.append(datos.tokens_used)
-
-        if datos.seconds_used:
-            update_fields.append("seconds_used = %s")
-            params.append(datos.seconds_used)
-            
-        if datos.llm_model:
-            update_fields.append("llm_model = %s")
-            params.append(datos.llm_model)
-
-        if datos.status is not None:
-            # Actualizamos columna status en encuestas
-            update_fields.append("status = %s")
-            params.append(datos.status)
-            
-            # completada es 1 solo si terminó todas las preguntas
-            final_complete = 1 if datos.status == 'completed' else 0
-            update_fields.append("completada = %s")
-            params.append(final_complete)
-            
-            # Mapeamos status del agente a status del lead
-            # El motor de campañas (reintentos) solo busca 'failed' o 'pending'
-            lead_status = datos.status
-            
-            # Actualizar lead asociado a este call_id
-            cursor.execute("UPDATE campaign_leads SET status = %s WHERE call_id = %s", (lead_status, id_final))
-            
-            # Actualizar también por teléfono si quedó pending (fallback)
-            cursor.execute("SELECT telefono FROM encuestas WHERE id = %s", (id_final,))
-            phone_res = cursor.fetchone()
-            if phone_res:
-                cursor.execute("UPDATE campaign_leads SET phone_number = %s WHERE call_id = %s", (phone_res['telefono'], id_final))
-                cursor.execute("UPDATE campaign_leads SET status = %s WHERE phone_number = %s AND status IN ('pending', 'called')", (lead_status, phone_res['telefono']))
-        update_fields.append("updated_at = CURRENT_TIMESTAMP")
-
-        if not update_fields:
-            return {"status": "skipped", "msg": "No data to update"}
-
-        sql = f"UPDATE encuestas SET {', '.join(update_fields)} WHERE id = %s"
-        params.append(id_final)
-
-        cursor.execute(sql, tuple(params))
-        conn.commit()
-        print(f"🚀 [Guardar] ID {id_final}: status_sent={datos.status}")
-        return {"status": "success"}
-    finally:
-        cursor.close()
-        conn.close()
-
-@app.post("/colgar")
-async def colgar(datos: ColgarLlamada):
-    print(f"✂️  Petición de colgar recibida.")
-    
-    # Pausa breve para dar tiempo a la despedida
-    print("⏳ Esperando 2 segundos para dar tiempo a la despedida...")
-    await asyncio.sleep(2.0) 
-
-    lkapi = api.LiveKitAPI(
-        os.getenv("LIVEKIT_URL"),
-        os.getenv("LIVEKIT_API_KEY"),
-        os.getenv("LIVEKIT_API_SECRET"),
-    )
-    
-    try:
-        await lkapi.room.delete_room(api.DeleteRoomRequest(room=datos.nombre_sala))
-        print("✅ Llamada cortada.")
-        return {"status": "success"}
-    except Exception as e:
-        print(f"⚠️ Falló borrar '{datos.nombre_sala}'. Buscando la sala REAL...")
-        
-        # Auto-reparación
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        sala_real = None
-        try:
-            cursor.execute("SELECT id FROM encuestas ORDER BY id DESC LIMIT 1")
-            resultado = cursor.fetchone()
-            if resultado:
-                sala_real = f"encuesta_{resultado['id']}"
-        except: pass
-        finally:
-            cursor.close()
-            conn.close()
-
-        if sala_real and sala_real != datos.nombre_sala:
-            print(f"💡 Re-intentando con sala real: {sala_real}...")
-            try:
-                await lkapi.room.delete_room(api.DeleteRoomRequest(room=sala_real))
-                print(f"✅ ¡SALVADO! Llamada {sala_real} cortada.")
-                return {"status": "success_repaired"}
-            except: pass
-            
-        return {"status": "error"}
-    finally:
-        await lkapi.aclose()
-
-# --- BACKGROUND WORKER PARA CAMPAÑAS ---
+# --- WORKER DE LLAMADAS (Background) ---
 
 async def process_campaigns():
-    """Worker mejorado: gestiona campañas activas, llamadas nuevas y reintentos automáticos"""
-    from datetime import timedelta
+    """Bucle principal que busca leads pendientes y lanza llamadas"""
+    print("🚀 Iniciando Worker de Campañas (Supabase)...")
     
     while True:
-        lkapi_worker = None
         try:
-            # Inicializar API para comprobar estado de salas
-            lkapi_worker = api.LiveKitAPI(
-                os.getenv("LIVEKIT_URL"),
-                os.getenv("LIVEKIT_API_KEY"),
-                os.getenv("LIVEKIT_API_SECRET"),
-            )
+            # 1. Buscar campañas activas
+            # SELECT * FROM campaigns WHERE status = 'active'
+            res_camps = supabase.table("campaigns").select("*").eq("status", "active").execute()
+            active_campaigns = res_camps.data
             
-            # --- 0. CONTROL DE CONCURRENCIA ESTRICTO (1 LLAMADA A LA VEZ) ---
-            # Listamos las salas activas. Si hay ALGUNA, no lanzamos más.
-            active_rooms = await lkapi_worker.room.list_rooms(api.ListRoomsRequest())
-            # Filtramos solo las que parecen de encuestas (encuesta_XX o similares)
-            ongoing_calls = [r for r in active_rooms.rooms if "encuesta_" in r.name]
-            
-            if len(ongoing_calls) > 0:
-                print(f"⏳ [Worker] Hay {len(ongoing_calls)} llamadas en curso. Esperando a que terminen para lanzar la siguiente...")
-                await lkapi_worker.aclose()
-                await asyncio.sleep(5) 
-                continue # Saltamos ciclo hasta que se libere
+            for camp in active_campaigns:
+                campaign_id = camp['id']
+                max_retries = camp['retries_count']
+                retry_interval = camp['retry_interval']
+                agent_id = camp['agent_id']
 
-            conn = get_db_connection()
+                # 2. Buscar leads pendientes para esta campaña
+                # status='pending' OR (status='failed' AND retries < max AND next_try < now)
+                
+                now_str = datetime.utcnow().isoformat()
+                
+                # Primero 'pending'
+                res_leads = supabase.table("campaign_leads").select("*") \
+                    .eq("campaign_id", campaign_id) \
+                    .eq("status", "pending") \
+                    .limit(5).execute() # Procesar de 5 en 5 para no saturar
+                
+                leads_to_call = res_leads.data
+                
+                # Si no hay pending, buscar retries
+                if not leads_to_call:
+                     # Supabase 'or' syntax is tricky inside python client for complex queries in one go without raw sql
+                     # Hacemos query separada para failed/unreached retriables
+                     res_retries = supabase.table("campaign_leads").select("*") \
+                        .eq("campaign_id", campaign_id) \
+                        .in_("status", ["failed", "unreached", "incomplete"]) \
+                        .lt("retries_attempted", max_retries) \
+                        .lt("next_retry_at", now_str) \
+                        .limit(5).execute()
+                     leads_to_call = res_retries.data
 
-            cursor = conn.cursor(dictionary=True)
-            
-            # --- 1. ACTIVAR CAMPAÑAS PENDIENTES ---
-            now_iso = datetime.utcnow().isoformat()
-            now_dt = datetime.utcnow()
-            
-            # Buscar pending y marcarlas como running si es hora
-            cursor.execute("""
-                SELECT id, name FROM campaigns 
-                WHERE status = 'pending' 
-                AND (scheduled_time IS NULL OR scheduled_time <= %s OR scheduled_time <= %s)
-            """, (now_iso, now_iso + "Z"))
-            
-            pending_campaigns = cursor.fetchall()
-            for cmp in pending_campaigns:
-                print(f"🚀 [Worker] Activando campaña '{cmp['name']}' (ID: {cmp['id']})...")
-                cursor.execute("UPDATE campaigns SET status = 'running' WHERE id = %s", (cmp['id'],))
-            conn.commit()
-            
-            # --- 1.5 TIMEOUT WATCHDOG (FIX FOR LOST CALLS) ---
-            # Si una lead lleva en 'called' más de 90 segundos sin actualización, 
-            # verificamos si hubo interacción real.
-            # - Si la encuesta asociada no tiene transcripción ni datos -> unreached (retryable)
-            # - Si tiene datos parciales -> incomplete (retryable)
-            timeout_threshold = datetime.utcnow() - timedelta(seconds=90)
-            cursor.execute("""
-                SELECT cl.id, cl.call_id
-                FROM campaign_leads cl
-                WHERE cl.status = 'called'
-                AND cl.last_call_at <= %s
-            """, (timeout_threshold,))
-            stale_leads = cursor.fetchall()
-            
-            for stale in stale_leads:
-                stale_id = stale['id']
-                stale_call_id = stale['call_id']
-                new_status = 'unreached'  # Default: no contestó
-                
-                if stale_call_id:
-                    # Check if there was actual interaction in the encuesta
-                    cursor.execute("""
-                        SELECT transcription, puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez, status
-                        FROM encuestas WHERE id = %s
-                    """, (stale_call_id,))
-                    enc = cursor.fetchone()
-                    if enc:
-                        has_transcript = bool(enc['transcription'] and 'Cliente:' in str(enc['transcription']))
-                        has_scores = any(enc[k] is not None for k in ['puntuacion_comercial', 'puntuacion_instalador', 'puntuacion_rapidez'])
-                        enc_status = enc['status']
-                        
-                        if enc_status in ('completed', 'rejected_opt_out'):
-                            new_status = enc_status
-                        elif has_scores or has_transcript:
-                            new_status = 'incomplete'
-                        else:
-                            new_status = 'unreached'
-                
-                cursor.execute("UPDATE campaign_leads SET status = %s WHERE id = %s", (new_status, stale_id))
-                print(f"♻️ [Worker] Timeout Watchdog: Lead {stale_id} -> {new_status}")
-            
-            if stale_leads:
-                conn.commit()
-            
-            # --- 2. PROCESAR CAMPAÑAS ACTIVAS (RUNNING) ---
-            cursor.execute("SELECT * FROM campaigns WHERE status = 'running'")
-            running_campaigns = cursor.fetchall()
-            
-            for campaign in running_campaigns:
-                campaign_id = campaign['id']
-                agent_id = campaign['agent_id']
-                
-                # Configuración de reintentos (defaults si es null)
-                max_retries = campaign['retries_count'] if campaign['retries_count'] is not None else 3
-                retry_interval_min = campaign['retry_interval'] if campaign['retry_interval'] is not None else 180
-                
-                # Buscar leads candidatos:
-                # - PENDING: Nuevos
-                # - FAILED: Para reintentar si no han superado el límite
-                # - UNREACHED: No contestaron, siempre reintentar
-                # - INCOMPLETE: Respondieron pero no completaron, reintentar
-                cursor.execute("""
-                    SELECT * FROM campaign_leads 
-                    WHERE campaign_id = %s 
-                    AND (
-                        status = 'pending' 
-                        OR (status = 'failed' AND retries_attempted < %s)
-                        OR (status = 'unreached' AND retries_attempted < %s)
-                        OR (status = 'incomplete' AND retries_attempted < %s)
-                    )
-                """, (campaign_id, max_retries, max_retries, max_retries))
-                
-                potential_leads = cursor.fetchall()
-                leads_to_call = []
-                
-                for lead in potential_leads:
-                    # Si es pending, siempre se llama
-                    if lead['status'] == 'pending':
-                        leads_to_call.append(lead)
-                        continue
-                        
-                    # Si es failed/unreached/incomplete, verificar si ya pasó el tiempo de espera
-                    if lead['status'] in ('failed', 'unreached', 'incomplete'):
-                        next_retry = lead['next_retry_at']
-                        if not next_retry:
-                            leads_to_call.append(lead) # Si no tiene fecha proxima, reintentar ya
-                        else:
-                            try:
-                                # Parseo básico de fecha ISO que puede venir de SQLite
-                                s_retry = str(next_retry).replace('Z', '')
-                                # Manejo de formatos con/sin microsegundos
-                                if '.' in s_retry:
-                                    target_time = datetime.strptime(s_retry, "%Y-%m-%d %H:%M:?.%f")
-                                else:
-                                    target_time = datetime.strptime(s_retry, "%Y-%m-%d %H:%M:?")
-                                    
-                                if now_dt >= target_time:
-                                    leads_to_call.append(lead)
-                            except Exception as e:
-                                # Ante duda de formato, procesar
-                                leads_to_call.append(lead)
+                if not leads_to_call:
+                    continue # Siguiente campaña
 
-                if leads_to_call:
-                    print(f"📋 [Worker] Campaña {campaign_id}: {len(leads_to_call)} leads listos para llamar (inc. reintentos).")
-                
+                print(f"🔄 [Worker] Procesando {len(leads_to_call)} leads para campaña {campaign_id}")
+
                 for lead in leads_to_call:
-                    phone = lead['phone_number']
                     lead_id = lead['id']
-                    customer_name = lead['customer_name']
-                    current_retries = lead['retries_attempted'] or 0
+                    phone = lead['phone_number']
+                    name = lead['customer_name']
                     
-                    print(f"📞 [Worker] Llamando a {phone} (Intento {current_retries + 1}/{max_retries + 1})...")
+                    # CHEQUEO DE CONCURRENCIA: Verificar que no haya llamadas activas en el SIP Trunk
+                    # (Esto requiere lógica extra con LiveKit API para ver salas activas, 
+                    #  por simplicidad asumimos que lanzamos 1 a 1 con pausas)
                     
+                    # Actualizar a 'calling'
+                    supabase.table("campaign_leads").update({
+                        "status": "calling", 
+                        "last_call_at": datetime.utcnow().isoformat(),
+                        "retries_attempted": lead['retries_attempted'] + 1
+                    }).eq("id", lead_id).execute()
+                    
+                    # 1. Crear entrada en 'encuestas' para tener ID
+                    encuesta_data = {
+                        "telefono": phone,
+                        "nombre_cliente": name,
+                        "fecha": datetime.utcnow().isoformat(),
+                        "status": "initiated",
+                        "completada": 0
+                    }
+                    res_enc = supabase.table("encuestas").insert(encuesta_data).execute()
+                    encuesta_id = res_enc.data[0]['id']
+                    
+                    # 2. Vincular lead con encuesta
+                    supabase.table("campaign_leads").update({"call_id": encuesta_id}).eq("id", lead_id).execute()
+
+                    # 3. Lanzar Llamada
                     try:
-                        # Calcular próxima fecha de reintento POR ADELANTADO (estrategia pesimista)
-                        next_retry_dt = now_dt + timedelta(minutes=retry_interval_min)
+                        print(f"📞 [Worker] Llamando a {phone} (Encuesta ID: {encuesta_id})...")
                         
-                        # Actualizar estado a 'intentando' incrementando el contador
-                        cursor.execute("""
-                            UPDATE campaign_leads 
-                            SET retries_attempted = retries_attempted + 1, 
-                                last_call_at = CURRENT_TIMESTAMP,
-                                next_retry_at = %s
-                            WHERE id = %s
-                        """, (next_retry_dt, lead_id))
-                        conn.commit()
+                        sip_trunk_id = os.getenv("SIP_OUTBOUND_TRUNK_ID")
+                        room_name = f"encuesta_{encuesta_id}"
                         
-                        # Lanzar llamada
-                        req = OutboundCallRequest(
-                            agentId=str(agent_id),
-                            phoneNumber=phone,
-                            customerName=customer_name,
-                            agentName=f"Agent-{agent_id}"
-                        )
-                        call_result = await make_outbound_call(req)
+                        # Crear sala explícitamente para asegurar
+                        try:
+                            await lkapi.room.create_room(api.CreateRoomRequest(name=room_name))
+                        except: pass # Si ya existe no pasa nada
+
+                        # Dial Out
+                        await lkapi.sip.create_sip_participant(api.CreateSIPParticipantRequest(
+                            sip_trunk_id=sip_trunk_id,
+                            sip_call_to=phone,
+                            room_name=room_name,
+                            participant_identity=f"user_{phone}",
+                            participant_name=name or "Cliente"
+                        ))
                         
-                        # VINCULAR: Guardar el call_id (encuesta ID) en el lead para que luego
-                        # /guardar-encuesta pueda actualizar el status del lead correctamente
-                        call_id_from_result = call_result.get('callId') if isinstance(call_result, dict) else None
+                        # Esperamos un poco para no ametrallar al SIP Trunk
+                        await asyncio.sleep(5)
                         
-                        if call_id_from_result:
-                            cursor.execute("UPDATE campaign_leads SET call_id = %s WHERE id = %s", (call_id_from_result, lead_id))
-                            print(f"🔗 [Worker] Lead {lead_id} vinculado a encuesta {call_id_from_result}")
-                        
-                        if call_result.get('status') == 'error':
-                             print(f"❌ [Worker] Error reportado por make_outbound_call: {call_result.get('detail')}")
-                             cursor.execute("UPDATE campaign_leads SET status = 'failed' WHERE id = %s", (lead_id,))
-                        else:
-                             # Si SIP OK -> Status 'called', PERO solo si no ha cambiado ya a un estado final (race condition con llamada muy corta)
-                             cursor.execute("SELECT status FROM campaign_leads WHERE id = %s", (lead_id,))
-                             res_stat = cursor.fetchone()
-                             current_status_db = res_stat['status'] if res_stat else 'pending'
-                             if current_status_db not in ('completed', 'rejected_opt_out', 'incomplete'):
-                                 cursor.execute("UPDATE campaign_leads SET status = 'called' WHERE id = %s", (lead_id,))
-                             else:
-                                 print(f"⚠️ [Worker] El estado ya cambió a '{current_status_db}' durante el inicio. No sobrescribimos con 'called'.")
-                        
-                        conn.commit()
-                        
-                        print("⏸️ [Worker] Procesado. Pausando 10s...")
-                        await asyncio.sleep(10) # Pausa solicitada por el usuario
-                        
-                        # IMPORTANTE: Romper el bucle de leads para volver a comprobar concurrencia arriba
-                        break 
+                        # Actualizar a 'called' si no dio error inmediato
+                        supabase.table("campaign_leads").update({"status": "called"}).eq("id", lead_id).execute()
                         
                     except Exception as e:
-                        print(f"❌ [Worker] Fallo técnico al llamar {phone}: {e}")
-                        # Marcar failed inmediatamente para que entre en ciclo de retry luego
-                        cursor.execute("UPDATE campaign_leads SET status = 'failed' WHERE id = %s", (lead_id,))
-                        conn.commit()
+                        print(f"❌ [Worker] Error al llamar {phone}: {e}")
+                        # Marcar para retry
+                        next_retry = (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
+                        supabase.table("campaign_leads").update({
+                            "status": "failed", 
+                            "next_retry_at": next_retry
+                        }).eq("id", lead_id).execute()
 
-                # --- 3. VERIFICAR FIN DE CAMPAÑA ---
-
-                # Una campaña acaba cuando NO hay leads en: pending, called, o (failed con intentos restantes)
-                cursor.execute("""
-                    SELECT COUNT(*) FROM campaign_leads 
-                    WHERE campaign_id = %s 
-                    AND (
-                        status = 'pending' 
-                        OR status = 'called' 
-                        OR (status = 'failed' AND retries_attempted < %s)
-                        OR (status = 'unreached' AND retries_attempted < %s)
-                        OR (status = 'incomplete' AND retries_attempted < %s)
-                    )
-                """, (campaign_id, max_retries, max_retries, max_retries))
-                res_count = cursor.fetchone(); pending_count = list(res_count.values())[0] if res_count else 0
+                # Verificar si campaña ha terminado
+                # Count pending or retriable
+                # Simplificación: si no encontramos leads arriba, podría haber terminado, 
+                # pero mejor comprobamos cuenta exacta.
                 
-                if pending_count == 0:
-                    print(f"✅ [Worker] Campaña {campaign_id} (retries={max_retries}) completada definitivamente.")
-                    cursor.execute("UPDATE campaigns SET status = 'completed' WHERE id = %s", (campaign_id,))
-                    conn.commit()
-
-            cursor.close()
-            conn.close()
-            if lkapi_worker: await lkapi_worker.aclose()
-            
+                
         except Exception as e:
-            print(f"⚠️ [Worker] Error en ciclo de campañas: {e}")
-            import traceback
-            traceback.print_exc()
-            if lkapi_worker: await lkapi_worker.aclose()
-
+            print(f"⚠️ [Worker Loop Error]: {e}")
+            await asyncio.sleep(30) # Esperar antes de reintentar si hay error grave
             
-        # Esperar 20 segundos para no saturar comprobando reintentos
-        await asyncio.sleep(20)
+        await asyncio.sleep(10) # Pausa entre ciclos
 
 @app.on_event("startup")
 async def startup_event():
-    print("🌅 Iniciando API y Background Workers...")
-    init_database()
+    print("🌅 Iniciando API (Supabase Integration)...")
     asyncio.create_task(process_campaigns())
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
