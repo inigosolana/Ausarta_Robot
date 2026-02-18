@@ -6,6 +6,8 @@ livekit-plugins-deepgram
 livekit-plugins-cartesia
 livekit-plugins-silero
 livekit-plugins-google
+livekit-plugins-noise-cancellation
 python-dotenv
 requests
 aiohttp
+mysql-connector-python
