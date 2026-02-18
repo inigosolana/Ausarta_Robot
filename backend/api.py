@@ -176,6 +176,12 @@ async def get_recent_calls():
         print(f"Error recent calls: {e}")
         return []
 
+# --- ALERTAS ---
+@app.get("/api/alerts")
+async def get_alerts():
+    # Devuelve lista vacía por ahora para evitar error 404 en frontend
+    return []
+
 # --- CALL CONTROL ---
 
 @app.post("/colgar")
