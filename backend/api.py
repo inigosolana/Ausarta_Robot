@@ -292,8 +292,6 @@ async def make_outbound_call(request: dict):
 
         # 3. Dial Out
         print(f"☎️ [API] Marcando vía SIP a {phone} en sala {room_name}...")
-        # 3. Dial Out
-        print(f"☎️ [API] Marcando vía SIP a {phone} en sala {room_name}...")
         await lkapi.sip.create_sip_participant(api.CreateSIPParticipantRequest(
             sip_trunk_id=sip_trunk_id,
             sip_call_to=phone,
@@ -306,7 +304,7 @@ async def make_outbound_call(request: dict):
         # Esto asegura que LiveKit mande al agente Dakota-1ef9 a la sala inmediatamente
         print(f"🚀 [API] Solicitando despacho de agente 'Dakota-1ef9' a sala {room_name}...")
         try:
-            await lkapi.agent.dispatch_job(api.DispatchJobRequest(
+            await lkapi.agent_dispatch.dispatch_job(api.DispatchJobRequest(
                 agent_name="Dakota-1ef9",
                 room=room_name
             ))
