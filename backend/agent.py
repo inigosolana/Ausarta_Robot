@@ -18,21 +18,17 @@ from livekit.agents import (
     ToolError,
     cli,
     function_tool,
-    inference,
     room_io,
     utils,
     stt
 )
 from livekit.plugins import (
+    noise_cancellation,
     silero,
-    openai, 
+    openai,
+    deepgram, # <--- NUEVO: Oídos directos
+    cartesia  # <--- NUEVO: Boca directa
 )
-
-try:
-    from livekit.plugins import noise_cancellation
-    HAS_NOISE_CANCELLATION = True
-except ImportError:
-    HAS_NOISE_CANCELLATION = False
 
 # --- CONFIGURACIÓN DE LOGS ---
 sys.stdout.reconfigure(line_buffering=True)
@@ -150,8 +146,6 @@ class DefaultAgent(Agent):
         Herramienta para colgar la llamada telefónica.
         Úsala siempre que la conversación deba terminar.
         """
-        # (Al simplificar el texto de esta función, la IA no se vuelve loca)
-        
         context.disallow_interruptions()
         
         logger.info("⏳ Esperando 4s para colgar (permitiendo audio despedida)...")
@@ -183,15 +177,18 @@ async def entrypoint(ctx: JobContext):
 
     try:
         session = AgentSession(
-            stt=inference.STT(model="deepgram/nova-3", language="es"),
+            # --- OÍDOS (BYOK) ---
+            stt=deepgram.STT(model="nova-3", language="es"),
+            # --- CEREBRO ---
             llm=openai.LLM(
                 model="llama-3.3-70b-versatile", 
                 base_url="https://api.groq.com/openai/v1",
                 api_key=os.getenv("GROQ_API_KEY"),
                 temperature=0.1
             ),
-            tts=inference.TTS(
-                model="cartesia/sonic-3",
+            # --- BOCA (BYOK) ---
+            tts=cartesia.TTS(
+                model="sonic-multilingual",
                 voice="6511153f-72f9-4314-a204-8d8d8afd646a",
                 language="es"
             ),
@@ -204,19 +201,12 @@ async def entrypoint(ctx: JobContext):
             print(f"\n🗣️  USUARIO DICE: {msg.alternatives[0].text}\n")
             logger.info(f"TRANSCRIPCIÓN: {msg.alternatives[0].text}")
 
-        # Configuración de cancelación de ruido opcional
-        noise_canceller = None
-        if HAS_NOISE_CANCELLATION:
-            noise_canceller = lambda params: noise_cancellation.BVCTelephony() if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP else noise_cancellation.BVC()
-        else:
-            logger.warning("⚠️ Noise cancellation plugin not found. Running without noise cancellation.")
-
         await session.start(
             agent=DefaultAgent(room_name=ctx.room.name),
             room=ctx.room,
             room_options=room_io.RoomOptions(
                 audio_input=room_io.AudioInputOptions(
-                    noise_cancellation=noise_canceller,
+                    noise_cancellation=lambda params: noise_cancellation.BVCTelephony() if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP else noise_cancellation.BVC(),
                 ),
             ),
         )
