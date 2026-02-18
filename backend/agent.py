@@ -60,7 +60,7 @@ if SUPABASE_URL and SUPABASE_KEY:
         logger.error(f"❌ Error conectando a Supabase desde el agente: {e}")
 
 class DefaultAgent(Agent):
-    def __init__(self, room_name: str) -> None:
+    def __init__(self, room_name: str, instructions: Optional[str] = None) -> None:
         self.server_url = os.getenv("BRIDGE_SERVER_URL", "http://127.0.0.1:8001")
         
         try:
@@ -68,8 +68,8 @@ class DefaultAgent(Agent):
         except:
             self.survey_id = "0"
 
-        super().__init__(
-            instructions=f"""Eres Dakota, operadora de voz de Ausarta, una empresa de Telecomunicaciones. Estás hablando por teléfono con un cliente real.
+        # Si no pasan instrucciones, usamos el bloque por defecto (fallback)
+        final_instructions = instructions if instructions else f"""Eres Dakota, operadora de voz de Ausarta, una empresa de Telecomunicaciones. Estás hablando por teléfono con un cliente real.
 
             DATOS TÉCNICOS (INVISIBLES PARA EL CLIENTE):
             - SALA ACTUAL: '{room_name}'
@@ -81,38 +81,13 @@ class DefaultAgent(Agent):
             3. PARA COLGAR: Siempre despídete primero diciendo el texto y LUEGO usa la herramienta 'finalizar_llamada'.
 
             GUION ESTRICTO (SIGUE EL ORDEN):
-            
-            PASO 1: SALUDO
-            - Di: "Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?"
-            - Si dice NO: 
-              - Di: "Entendido, gracias. Que tenga buen día."
-              - Usa la herramienta 'finalizar_llamada'.
-            - Si dice SÍ: Ve INMEDIATAMENTE al PASO 2.
+            """
 
-            PASO 2: NOTA COMERCIAL
-            - Pregunta: "¿Qué nota del UNO al 10 le da al comercial que le atendió?"
-            - Si responde con un NÚMERO: Usa 'guardar_encuesta' (solo nota_comercial). Luego ve al PASO 3.
-            
-            PASO 3: NOTA INSTALADOR
-            - Pregunta: "¿Qué nota del UNO al 10 le da al instalador?"
-            - Si responde con un NÚMERO: Usa 'guardar_encuesta' (solo nota_instalador). Luego ve al PASO 4.
-
-            PASO 4: NOTA RAPIDEZ
-            - Pregunta: "¿Y qué nota del UNO al 10 le da a la rapidez del servicio?"
-            - Si responde con un NÚMERO: Usa 'guardar_encuesta' (solo nota_rapidez). Luego ve OBLIGATORIAMENTE al PASO 5.
-            
-            PASO 5: CIERRE Y COMENTARIOS
-            - Pregunta: "¿Algún comentario final antes de terminar?"
-            - Escucha la respuesta. Usa 'guardar_encuesta' (solo comentarios).
-            - Di: "Muchas gracias por su tiempo, que tenga buen día."
-            - Usa la herramienta 'finalizar_llamada'.
-
-            EXCEPCIÓN: SI EL USUARIO PIDE COLGAR A MITAD DE LA ENCUESTA (ej: "no tengo tiempo", "cuelga"):
-            - Si te dio una nota en su última frase, usa 'guardar_encuesta'.
-            - Di exactamente: "De acuerdo, disculpe las molestias. Adiós."
-            - Usa la herramienta 'finalizar_llamada'.
-            """,
+        super().__init__(
+            instructions=final_instructions,
         )
+
+
 
     async def on_enter(self):
         await self.session.generate_reply(
@@ -267,8 +242,7 @@ async def entrypoint(ctx: JobContext):
         )
 
         # Configurar instancia del agente con prompt de la DB
-        agent_instance = DefaultAgent(room_name=ctx.room.name)
-        agent_instance.instructions = instructions # Sobrescribimos
+        agent_instance = DefaultAgent(room_name=ctx.room.name, instructions=instructions)
         
         # Guardamos el saludo para usarlo en la llamada si es necesario
         # (Depende de cómo manejes el inicio de la conversación)
