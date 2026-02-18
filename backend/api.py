@@ -301,40 +301,52 @@ async def make_outbound_call(request: dict):
         print(f"❌ Error llamada prueba: {e}")
         return JSONResponse(status_code=500, content={"error": str(e), "detail": str(e)})
 
-@app.get("/api/agent/config")
-async def get_agent_config():
-    if not supabase: return {"name": "Dakota", "instructions": "Default"}
+@app.get("/api/agents")
+async def get_agents():
+    """Endpoint compatible con frontend que espera lista de agentes"""
+    if not supabase: return [{"name": "Dakota", "instructions": "Default"}]
     try:
         res = supabase.table("agent_config").select("*").limit(1).execute()
         if res.data:
-            return res.data[0]
+            # Frontend espera 'instructions' en el objeto principal
+            # Y 'id' como string si es posible
+            agent = res.data[0]
+            agent['id'] = str(agent['id'])
+            return [agent] # Devolvemos lista
         else:
-            return {"name": "Dakota", "use_case": "Encuesta", "instructions": "Default"}
+            return [{"id": "1", "name": "Dakota", "use_case": "Encuesta", "instructions": "Default"}]
     except Exception as e:
-        print(f"Error getting agent config: {e}")
-        return {"error": str(e)}
+        print(f"Error getting agents: {e}")
+        return []
 
-@app.post("/api/agent/config")
-async def update_agent_config(config: dict): # Recibimos dict genérico para flexibilidad
+@app.put("/api/agents/{agent_id}")
+async def update_agent(agent_id: str, config: dict):
     if not supabase: return {"error": "No DB"}
     try:
-        # Asegurar que existe registro 1
+        # Ignoramos el ID de la URL y actualizamos el ÚNICO agente que tenemos
         curr = supabase.table("agent_config").select("id").limit(1).execute()
+        
+        # Mapeamos campos si el frontend manda nombres distintos (ej: cammelCase vs snake_case)
+        # El frontend manda: name, useCase, description, instructions, greeting
+        
+        db_config = {}
+        if "name" in config: db_config["name"] = config["name"]
+        if "instructions" in config: db_config["instructions"] = config["instructions"]
+        if "greeting" in config: db_config["greeting"] = config["greeting"]
+        if "description" in config: db_config["description"] = config["description"]
+        if "useCase" in config: db_config["use_case"] = config["useCase"] # CAMBIO IMPORTANTE
+        
+        db_config["updated_at"] = datetime.utcnow().isoformat()
+        
         if not curr.data:
-            supabase.table("agent_config").insert(config).execute()
+            supabase.table("agent_config").insert(db_config).execute()
         else:
-            # Actualizar el primer registro
             first_id = curr.data[0]['id']
-            # Filtrar campos válidos
-            valid_fields = ["name", "use_case", "greeting", "instructions", "description"]
-            clean_config = {k: v for k, v in config.items() if k in valid_fields}
-            clean_config["updated_at"] = datetime.utcnow().isoformat()
+            supabase.table("agent_config").update(db_config).eq("id", first_id).execute()
             
-            supabase.table("agent_config").update(clean_config).eq("id", first_id).execute()
-            
-        return {"status": "ok", "message": "Configuración guardada"}
+        return {"status": "ok", "message": "Agente actualizado"}
     except Exception as e:
-        print(f"Error updating agent config: {e}")
+        print(f"Error updating agent: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 # --- CONFIGURACIÓN DE MODELOS (AI) ---
