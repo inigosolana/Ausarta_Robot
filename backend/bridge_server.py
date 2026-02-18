@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import mysql.connector
 import os
 import re
-import asyncio # <--- IMPORTANTE: Necesario para la pausa
+import asyncio 
 from datetime import datetime
 from typing import Optional, Union
 from dotenv import load_dotenv
@@ -14,27 +14,39 @@ load_dotenv()
 app = FastAPI()
 
 # --- CONEXIÓN DB ---
-# --- CONEXIÓN DB (POOLING) ---
-db_config = {
-    "host": os.getenv('DB_HOST', 'localhost'),
-    "user": os.getenv('DB_USER', 'ausarta_user'),
-    "password": os.getenv('DB_PASSWORD', 'Noruega.15'),
-    "database": os.getenv('DB_NAME', 'encuestas_ausarta'),
-    "pool_name": "my_pool",
-    "pool_size": 5
-}
-
 def get_db_connection():
-    # Intentamos obtener una conexión del pool o crear uno si no existe
+    return mysql.connector.connect(
+        host=os.getenv('DB_HOST', 'localhost'),
+        user=os.getenv('DB_USER', 'ausarta_user'),
+        password=os.getenv('DB_PASSWORD', 'Noruega.15'),
+        database=os.getenv('DB_NAME', 'encuestas_ausarta')
+    )
+
+def init_mysql():
+    """Asegura que las columnas necesarias existen en MySQL"""
     try:
-        return mysql.connector.connect(**db_config)
-    except mysql.connector.Error as e:
-        # Fallback simple
-        print(f"⚠️ Error pool DB, conectando directo: {e}")
-        return mysql.connector.connect(
-             host=db_config["host"], user=db_config["user"], 
-             password=db_config["password"], database=db_config["database"]
-        )
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Añadir status si no existe
+        try:
+            cursor.execute("ALTER TABLE encuestas ADD COLUMN status VARCHAR(20) DEFAULT 'pending'")
+            print("📦 [MySQL] Columna 'status' añadida.")
+        except: pass
+        
+        # Añadir llm_model si no existe
+        try:
+            cursor.execute("ALTER TABLE encuestas ADD COLUMN llm_model VARCHAR(50) DEFAULT NULL")
+            print("📦 [MySQL] Columna 'llm_model' añadida.")
+        except: pass
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ Error inicializando MySQL: {e}")
+
+# Inicializar al arrancar
+init_mysql()
 
 # --- MODELOS ---
 class InicioEncuesta(BaseModel):
@@ -45,14 +57,13 @@ class FinEncuesta(BaseModel):
     nota_comercial: Union[int, str, None] = None
     nota_instalador: Union[int, str, None] = None
     nota_rapidez: Union[int, str, None] = None
-    comentarios: Optional[str] = "Sin comentarios"
-    llm_model: Optional[str] = "Desconocido"
-    status: Optional[str] = "pending"
+    comentarios: Optional[str] = None
+    status: Optional[str] = None
+    llm_model: Optional[str] = "llama-3.3-70b-versatile"
 
 class ColgarLlamada(BaseModel):
     nombre_sala: str 
 
-# --- DEBUGGING ---
 @app.exception_handler(Exception)
 async def validation_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=422, content={"detail": str(exc)})
@@ -64,19 +75,19 @@ async def iniciar_encuesta(datos: InicioEncuesta):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO encuestas (telefono, fecha, completada) VALUES (%s, %s, 0)", (datos.telefono, datetime.now()))
+        cursor.execute("INSERT INTO encuestas (telefono, fecha, completada, status) VALUES (%s, %s, 0, 'pending')", (datos.telefono, datetime.now()))
         conn.commit()
         nuevo_id = cursor.lastrowid
-        print(f"✅ Ficha creada con ID: {nuevo_id} (Esperando a la IA...)")
+        print(f"✅ Ficha creada con ID: {nuevo_id}")
         return {"id": nuevo_id}
     finally:
         cursor.close()
         conn.close()
 
-# 2. GUARDAR
+# 2. GUARDAR (VERSIÓN INCREMENTAL INTELIGENTE)
 @app.post("/guardar-encuesta")
 async def guardar_encuesta(datos: FinEncuesta):
-    print(f"📥 2. Recibiendo datos. La IA dice ID: {datos.id_encuesta}")
+    print(f"📥 Recibiendo datos para ID: {datos.id_encuesta} (Status: {datos.status})")
     
     def clean_nota(val):
         try:
@@ -85,9 +96,17 @@ async def guardar_encuesta(datos: FinEncuesta):
             return None 
         except: return None
     
+    val_comercial = clean_nota(datos.nota_comercial) if datos.nota_comercial is not None else None
+    val_instalador = clean_nota(datos.nota_instalador) if datos.nota_instalador is not None else None
+    val_rapidez = clean_nota(datos.nota_rapidez) if datos.nota_rapidez is not None else None
+    val_comentarios = datos.comentarios
+    val_status = datos.status
+    val_llm = datos.llm_model
+
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # Recuperamos ID
         id_final = None
         try:
             nums = re.findall(r'\d+', str(datos.id_encuesta))
@@ -95,106 +114,76 @@ async def guardar_encuesta(datos: FinEncuesta):
         except: pass
 
         if not id_final:
-            print("🔍 ID IA no válido. Buscando última ficha abierta...")
-            cursor.execute("SELECT id FROM encuestas WHERE completada = 0 ORDER BY id DESC LIMIT 1")
+            cursor.execute("SELECT id FROM encuestas ORDER BY id DESC LIMIT 1")
             res = cursor.fetchone()
-            if res:
-                id_final = res[0]
-                print(f"💡 ¡ENCONTRADO! Usaremos la ficha {id_final}.")
-            else:
-                cursor.execute("SELECT id FROM encuestas ORDER BY id DESC LIMIT 1")
-                res_last = cursor.fetchone()
-                if res_last: id_final = res_last[0]
-
+            if res: id_final = res[0]
+        
         if not id_final: return {"status": "error", "msg": "No ID found"}
 
-        is_done = 1 if datos.status == 'completed' else 0
-        
-        # 1. Obtener datos actuales para no sobreescribir con NULL
-        cursor.execute("SELECT puntuacion_comercial, puntuacion_instalador, puntuacion_rapidez, comentarios, llm_model FROM encuestas WHERE id=%s", (id_final,))
-        current = cursor.fetchone()
-        
-        if current:
-            curr_comercial, curr_instalador, curr_rapidez, curr_comentarios, curr_llm = current
-            
-            # Solo actualizar si el dato no es None
-            new_comercial = clean_nota(datos.nota_comercial) if datos.nota_comercial is not None else curr_comercial
-            new_instalador = clean_nota(datos.nota_instalador) if datos.nota_instalador is not None else curr_instalador
-            new_rapidez = clean_nota(datos.nota_rapidez) if datos.nota_rapidez is not None else curr_rapidez
-            
-            # Comentarios: No usar el default "Sin comentarios" si ya hay algo mejor
-            new_comentarios = datos.comentarios if (datos.comentarios and datos.comentarios != "Sin comentarios") else curr_comentarios
-            new_llm = datos.llm_model if (datos.llm_model and datos.llm_model != "Desconocido") else curr_llm
+        updates = []
+        values = []
 
-            cursor.execute(
-                """UPDATE encuestas 
-                   SET puntuacion_comercial=%s, puntuacion_instalador=%s, puntuacion_rapidez=%s, comentarios=%s, completada=%s, llm_model=%s, status=%s
-                   WHERE id=%s""",
-                (new_comercial, new_instalador, new_rapidez, new_comentarios, is_done, new_llm, datos.status, id_final)
-            )
-        else:
-            # Fallback (si es nueva, aunque no debería)
-            cursor.execute(
-                """UPDATE encuestas 
-                   SET puntuacion_comercial=%s, puntuacion_instalador=%s, puntuacion_rapidez=%s, comentarios=%s, completada=%s, llm_model=%s, status=%s
-                   WHERE id=%s""",
-                (clean_nota(datos.nota_comercial), clean_nota(datos.nota_instalador), clean_nota(datos.nota_rapidez), datos.comentarios, is_done, datos.llm_model, datos.status, id_final)
-            )
+        if val_comercial is not None:
+            updates.append("puntuacion_comercial=%s")
+            values.append(val_comercial)
+        
+        if val_instalador is not None:
+            updates.append("puntuacion_instalador=%s")
+            values.append(val_instalador)
+            
+        if val_rapidez is not None:
+            updates.append("puntuacion_rapidez=%s")
+            values.append(val_rapidez)
 
+        if val_comentarios is not None and val_comentarios != "Sin comentarios":
+            updates.append("comentarios=%s")
+            values.append(val_comentarios)
+
+        if val_status is not None:
+            updates.append("status=%s")
+            values.append(val_status)
+            if val_status == 'completed':
+                updates.append("completada=1")
+            elif val_status == 'rejected_opt_out':
+                updates.append("completada=0") # Opcional: marcar como procesada pero no completada
+
+        if val_llm:
+            updates.append("llm_model=%s")
+            values.append(val_llm)
+
+        if not updates:
+            print("⚠️ Sin cambios para guardar.")
+            return {"status": "no_changes"}
+
+        query_sql = f"UPDATE encuestas SET {', '.join(updates)} WHERE id=%s"
+        values.append(id_final)
+
+        cursor.execute(query_sql, tuple(values))
         conn.commit()
-        print(f"🚀 ¡EXITO! Datos guardados en ficha {id_final} (status: {datos.status}).")
+        print(f"💾 Guardado incremental en ficha {id_final} (updates: {len(updates)})")
         return {"status": "success"}
     finally:
         cursor.close()
         conn.close()
 
-# 3. COLGAR CON CORTESÍA ⏳
+# 3. COLGAR
 @app.post("/colgar")
 async def colgar(datos: ColgarLlamada):
     print(f"✂️  Petición de colgar recibida.")
+    # Espera un poco para que la IA termine la despedida
+    await asyncio.sleep(2) 
     
-    # --- PAUSA BREVE ---
-    # Esperamos 1 segundo para que la IA termine de decir "Adiós"
-    print("⏳ Esperando 1 segundo para dar tiempo a la despedida...")
-    await asyncio.sleep(1) 
-    # -----------------------
-
     lkapi = api.LiveKitAPI(
         os.getenv("LIVEKIT_URL"),
         os.getenv("LIVEKIT_API_KEY"),
         os.getenv("LIVEKIT_API_SECRET"),
     )
-    
     try:
-        # INTENTO 1
         await lkapi.room.delete_room(api.DeleteRoomRequest(room=datos.nombre_sala))
-        print("✅ Llamada cortada.")
+        print(f"✅ Sala {datos.nombre_sala} eliminada.")
         return {"status": "success"}
     except Exception as e:
-        print(f"⚠️ Falló borrar '{datos.nombre_sala}'. Buscando la sala REAL...")
-        
-        # INTENTO 2: AUTO-REPARACIÓN
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        sala_real = None
-        try:
-            cursor.execute("SELECT id FROM encuestas ORDER BY id DESC LIMIT 1")
-            resultado = cursor.fetchone()
-            if resultado:
-                sala_real = f"encuesta_{resultado[0]}"
-        except: pass
-        finally:
-            cursor.close()
-            conn.close()
-
-        if sala_real and sala_real != datos.nombre_sala:
-            print(f"💡 Re-intentando con sala real: {sala_real}...")
-            try:
-                await lkapi.room.delete_room(api.DeleteRoomRequest(room=sala_real))
-                print(f"✅ ¡SALVADO! Llamada {sala_real} cortada.")
-                return {"status": "success_repaired"}
-            except: pass
-            
+        print(f"⚠️ Error colgando: {e}")
         return {"status": "error"}
     finally:
         await lkapi.aclose()

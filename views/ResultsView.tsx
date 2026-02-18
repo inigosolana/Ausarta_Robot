@@ -154,13 +154,15 @@ const ResultsView: React.FC = () => {
                                     <td className="px-6 py-4 text-center">
                                         {(() => {
                                             if (row.status === 'completed') {
-                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200 uppercase">Completada</span>;
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-green-500 text-white uppercase shadow-sm">Completa</span>;
                                             } else if (row.status === 'incomplete') {
-                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200 uppercase">Incompleta</span>;
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-blue-400 text-white uppercase shadow-sm">Incompleta</span>;
                                             } else if (row.status === 'rejected_opt_out') {
-                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200 uppercase" title="Rechazada (No reintentar)">Rechazada</span>;
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-500 text-white uppercase shadow-sm" title="Rechazada por Cliente">Rechazada Cliente</span>;
+                                            } else if (row.status === 'failed') {
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-orange-400 text-white uppercase shadow-sm">Fallida</span>;
                                             } else {
-                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-500 border border-gray-200 uppercase" title="Fallo / No respondió (Se reintentará)">Rechazada (Intento)</span>;
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-gray-400 text-white uppercase shadow-sm">Pendiente</span>;
                                             }
                                         })()}
                                     </td>
