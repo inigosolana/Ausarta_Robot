@@ -26,8 +26,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
 
-      # Database Configuration (Usando MySQL LOCAL del host)
-      - DB_HOST=192.168.8.219 # IP Fija de tu máquina
+      # Database Configuration (Usando MySQL del HOST Linux)
+      - DB_HOST=host.docker.internal
       - DB_PORT=3306
       - DB_NAME=${DB_NAME:-encuestas_ausarta}
       - DB_USER=${DB_USER:-ausarta_user}
