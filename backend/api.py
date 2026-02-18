@@ -232,7 +232,7 @@ async def guardar_encuesta(datos: EncuestaData):
     if not update_data:
         return {"status": "ignored", "message": "No data to update"}
 
-    update_data["updated_at"] = datetime.utcnow().isoformat()
+    # update_data["updated_at"] = datetime.utcnow().isoformat()
 
     try:
         supabase.table("encuestas").update(update_data).eq("id", datos.id_encuesta).execute()
@@ -381,6 +381,15 @@ async def update_ai_config(config: dict):
     except Exception as e:
         print(f"Error updating AI config: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+# --- ALIAS FOR FRONTEND COMPATIBILITY ---
+@app.get("/api/settings")
+async def get_settings_alias():
+    return await get_ai_config()
+
+@app.post("/api/settings")
+async def update_settings_alias(config: dict):
+    return await update_ai_config(config)
 
 # --- CAMPAIGN MANAGEMENT ---
 

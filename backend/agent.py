@@ -27,8 +27,22 @@ from livekit.plugins import (
     silero,
     openai,
     deepgram, # <--- NUEVO: Oídos directos
-    cartesia  # <--- NUEVO: Boca directa
+    cartesia,  # <--- NUEVO: Boca directa
+    google
 )
+from supabase import create_client, Client
+
+# --- CONFIGURACIÓN DE BASE DE DATOS (Supabase) ---
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = None
+
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info(f"✅ Agente conectado a Supabase para configuración dinámica")
+    except Exception as e:
+        logger.error(f"❌ Error conectando a Supabase desde el agente: {e}")
 
 # --- CONFIGURACIÓN DE LOGS ---
 sys.stdout.reconfigure(line_buffering=True)
@@ -171,22 +185,59 @@ async def entrypoint(ctx: JobContext):
     def handle_error(error):
         msg = str(error)
         if "429" in msg: 
-            logger.error("\n\n🚨🚨🚨 ALERTA GROQ: Límite Alcanzado 🚨🚨🚨\n")
+            logger.error("\n\n🚨🚨🚨 ALERTA RATE LIMIT: Se ha alcanzado el límite de tokens 🚨🚨🚨\n")
         else:
             logger.error(f"\n⚠️ ERROR DEL AGENTE: {error}\n")
 
+    # --- CARGA DINÁMICA DE CONFIGURACIÓN ---
+    llm_provider = "openai"
+    llm_model = "gpt-4o-mini"
+    
+    if supabase:
+        try:
+            res = supabase.table("ai_config").select("*").limit(1).execute()
+            if res.data:
+                config = res.data[0]
+                llm_provider = config.get("llm_provider", "openai")
+                llm_model = config.get("llm_model", "gpt-4o-mini")
+                logger.info(f"⚙️ Configuración cargada: {llm_provider} / {llm_model}")
+        except Exception as e:
+            logger.warning(f"⚠️ No se pudo cargar configuración dinámica, usando defaults: {e}")
+
+    # --- SELECCIÓN DE LLM ---
+    selected_llm = None
+    if llm_provider == "groq":
+        selected_llm = openai.LLM(
+            model=llm_model, 
+            base_url="https://api.groq.com/openai/v1",
+            api_key=os.getenv("GROQ_API_KEY"),
+            temperature=0.4
+        )
+    elif llm_provider == "google" or llm_provider == "gemini":
+        selected_llm = google.LLM(
+            model=llm_model if "models/" in llm_model else f"models/{llm_model}",
+            api_key=os.getenv("GOOGLE_API_KEY"),
+            temperature=0.4
+        )
+    elif llm_provider == "deepseek":
+        # DeepSeek suele ser compatible con OpenAI, usamos su base_url
+        selected_llm = openai.LLM(
+            model=llm_model,
+            base_url="https://api.deepseek.com/v1",
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            temperature=0.4
+        )
+    else: # Default: OpenAI
+        selected_llm = openai.LLM(
+            model=llm_model,
+            api_key=os.getenv("OPENAI_API_KEY"),
+            temperature=0.4
+        )
+
     try:
         session = AgentSession(
-            # --- OÍDOS (BYOK) ---
             stt=deepgram.STT(model="nova-3", language="es"),
-            # --- CEREBRO ---
-            llm=openai.LLM(
-                model="llama-3.3-70b-versatile", 
-                base_url="https://api.groq.com/openai/v1",
-                api_key=os.getenv("GROQ_API_KEY"),
-                temperature=0.1
-            ),
-            # --- BOCA (BYOK) ---
+            llm=selected_llm,
             tts=cartesia.TTS(
                 model="sonic-multilingual",
                 voice="6511153f-72f9-4314-a204-8d8d8afd646a",
