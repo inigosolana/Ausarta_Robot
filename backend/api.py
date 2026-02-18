@@ -251,6 +251,9 @@ async def guardar_encuesta(datos: EncuestaData):
 
 # --- CONFIGURACIÓN DEL AGENTE ---
 
+import time
+import random
+
 @app.post("/api/calls/outbound")
 async def make_outbound_call(request: dict):
     """Endpoint para llamadas de prueba desde el Dashboard"""
@@ -260,10 +263,10 @@ async def make_outbound_call(request: dict):
     if not phone:
         return JSONResponse(status_code=400, content={"error": "Phone number is required"})
 
-    print(f"📞 Iniciando llamada de prueba a {phone}...")
+    print(f"📞 [API] Iniciando solicitud de llamada a {phone} (Agent ID: {agent_id})...")
     
     try:
-        # 1. Crear registro en BD (aunque sea de prueba)
+        # 1. Crear registro en BD
         if supabase:
             encuesta_data = {
                 "telefono": phone,
@@ -275,31 +278,33 @@ async def make_outbound_call(request: dict):
             res_enc = supabase.table("encuestas").insert(encuesta_data).execute()
             encuesta_id = res_enc.data[0]['id']
         else:
-            encuesta_id = 9999 # Fallback si no hay DB
+            encuesta_id = random.randint(1000, 9999)
             
-        # 2. Configurar LiveKit
+        # 2. Configurar LiveKit con nombre de sala ÚNICO
         sip_trunk_id = os.getenv("SIP_OUTBOUND_TRUNK_ID")
-        room_name = f"encuesta_{encuesta_id}"
+        room_name = f"encuesta_{encuesta_id}_{int(time.time())}"
 
-        # Crear sala
+        print(f"📡 [API] Creando sala: {room_name}")
         try:
             await lkapi.room.create_room(api.CreateRoomRequest(name=room_name))
-        except: pass
+        except Exception as e:
+            print(f"⚠️ [API] Aviso al crear sala (puede que ya exista): {e}")
 
         # 3. Dial Out
+        print(f"☎️ [API] Marcando vía SIP a {phone} en sala {room_name}...")
         await lkapi.sip.create_sip_participant(api.CreateSIPParticipantRequest(
             sip_trunk_id=sip_trunk_id,
             sip_call_to=phone,
             room_name=room_name,
-            participant_identity=f"user_{phone}_test",
+            participant_identity=f"user_{phone}_{int(time.time())}",
             participant_name="Test User"
         ))
 
         return {"status": "ok", "roomName": room_name, "callId": encuesta_id}
         
     except Exception as e:
-        print(f"❌ Error llamada prueba: {e}")
-        return JSONResponse(status_code=500, content={"error": str(e), "detail": str(e)})
+        print(f"❌ [API] Error fatal en outbound call: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/api/agents")
 async def get_agents():

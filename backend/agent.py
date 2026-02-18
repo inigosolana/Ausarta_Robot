@@ -235,16 +235,12 @@ async def entrypoint(ctx: JobContext):
             temperature=0.4
         )
 
-    # --- SELECCIÓN DE TTS (BOCA) ---
-    selected_tts = None
-    if tts_provider == "openai":
-        selected_tts = openai.TTS(model=tts_model, voice=tts_voice)
-    else: # Default: Cartesia
-        selected_tts = cartesia.TTS(
-            model=tts_model,
-            voice=tts_voice,
-            language="es"
-        )
+    # --- SELECCIÓN DE TTS (BOCA) - SOLO CARTESIA ---
+    selected_tts = cartesia.TTS(
+        model=tts_model if tts_model else "sonic-multilingual",
+        voice=tts_voice if tts_voice else "6511153f-72f9-4314-a204-8d8d8afd646a",
+        language="es"
+    )
 
     try:
         session = AgentSession(
