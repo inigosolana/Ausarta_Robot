@@ -309,9 +309,6 @@ async def get_dashboard_stats():
             "overall": round(float(avg_overall), 1)
         }
     }
-            "overall": round(avg_overall, 1)
-        }
-    }
 
 @app.get("/api/dashboard/recent-calls")
 async def get_recent_calls():
