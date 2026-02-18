@@ -251,6 +251,56 @@ async def guardar_encuesta(datos: EncuestaData):
 
 # --- CONFIGURACIÓN DEL AGENTE ---
 
+@app.post("/api/calls/outbound")
+async def make_outbound_call(request: dict):
+    """Endpoint para llamadas de prueba desde el Dashboard"""
+    phone = request.get("phoneNumber")
+    agent_id = request.get("agentId", "1")
+    
+    if not phone:
+        return JSONResponse(status_code=400, content={"error": "Phone number is required"})
+
+    print(f"📞 Iniciando llamada de prueba a {phone}...")
+    
+    try:
+        # 1. Crear registro en BD (aunque sea de prueba)
+        if supabase:
+            encuesta_data = {
+                "telefono": phone,
+                "nombre_cliente": "Prueba Dashboard",
+                "fecha": datetime.utcnow().isoformat(),
+                "status": "initiated",
+                "completada": 0
+            }
+            res_enc = supabase.table("encuestas").insert(encuesta_data).execute()
+            encuesta_id = res_enc.data[0]['id']
+        else:
+            encuesta_id = 9999 # Fallback si no hay DB
+            
+        # 2. Configurar LiveKit
+        sip_trunk_id = os.getenv("SIP_OUTBOUND_TRUNK_ID")
+        room_name = f"encuesta_{encuesta_id}"
+
+        # Crear sala
+        try:
+            await lkapi.room.create_room(api.CreateRoomRequest(name=room_name))
+        except: pass
+
+        # 3. Dial Out
+        await lkapi.sip.create_sip_participant(api.CreateSIPParticipantRequest(
+            sip_trunk_id=sip_trunk_id,
+            sip_call_to=phone,
+            room_name=room_name,
+            participant_identity=f"user_{phone}_test",
+            participant_name="Test User"
+        ))
+
+        return {"status": "ok", "roomName": room_name, "callId": encuesta_id}
+        
+    except Exception as e:
+        print(f"❌ Error llamada prueba: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e), "detail": str(e)})
+
 @app.get("/api/agent/config")
 async def get_agent_config():
     if not supabase: return {"name": "Dakota", "instructions": "Default"}
