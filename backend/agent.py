@@ -169,24 +169,18 @@ class DefaultAgent(Agent):
         self, context: RunContext, nombre_sala: str, mensaje_despedida: Optional[str] = None
     ) -> str | None:
         """
-        Herramienta para colgar la llamada telefónica.
-        Úsala siempre que la conversación deba terminar.
-        Args:
-            mensaje_despedida: Texto exacto que el agente debe decir antes de colgar (ej: "Gracias y adiós").
+        Herramienta para colgar la llamada.
+        Úsala COMO ÚLTIMA ACCIÓN tras despedirte.
         """
         context.disallow_interruptions()
         
+        # Si hay mensaje de despedida, lo logueamos, pero confiamos en que el agente
+        # ya lo ha dicho o lo está diciendo como parte de su respuesta de texto.
         if mensaje_despedida:
-            logger.info(f"🗣️ Generando despedida forzada: {mensaje_despedida}")
-            # Lanzamos la generación de audio en background pero el sleep asegura que se escuche
-            asyncio.create_task(self.session.generate_reply(
-                instructions=f"Di exactamente con tono natural y amable: '{mensaje_despedida}'",
-                allow_interruptions=False
-            ))
+             logger.info(f"🗣️ Despedida: {mensaje_despedida}")
         
-        # Pausa para permitir que la frase se escuche
-        logger.info("⏳ Esperando 4.0s para colgar...")
-        await asyncio.sleep(4.0) 
+        logger.info("⏳ Esperando 3.0s para asegurar que se escuche la despedida...")
+        await asyncio.sleep(3.0) 
         
         url = f"{self.server_url}/colgar"
         payload = {"nombre_sala": nombre_sala}
@@ -194,9 +188,10 @@ class DefaultAgent(Agent):
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, timeout=5, json=payload) as resp:
                     logger.info(f"✂️ COLGANDO: {nombre_sala}")
-                    return await resp.text()
+                    return "Llamada finalizada."
         except Exception as e:
-            raise ToolError(f"Error Colgar: {e}")
+            logger.error(f"Error Colgar: {e}")
+            return "Error al colgar."
 
 server = AgentServer()
 
