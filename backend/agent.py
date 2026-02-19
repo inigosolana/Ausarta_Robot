@@ -119,17 +119,19 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
 
 
     async def on_enter(self):
-        # Delay mínimo para que el pipeline de audio esté listo
-        await asyncio.sleep(0.3)
-        logger.info(f"📢 Intentando saludo inicial | survey_id={self.survey_id}...")
-        # Pre-calentar Cartesia TTS: enviar un texto muy corto primero para inicializar
-        # el WebSocket interno y evitar el error "no audio frames" en el saludo real
+        # PROBLEMA: on_enter se dispara ~0.2s ANTES de que el pipeline de audio esté listo.
+        # Necesitamos esperar a que el I/O pipeline (RoomIO→AgentSession) esté inicializado.
+        # Con la música de espera de fondo, el usuario no nota este delay.
+        await asyncio.sleep(1.5)
+        logger.info(f"📢 Pipeline listo. Intentando saludo | survey_id={self.survey_id}...")
+        # Pre-calentar Cartesia con texto REAL (no whitespace, que se ignora silenciosamente)
         try:
-            await self.session.say(" ", allow_interruptions=False)
+            await self.session.say("Hola.", allow_interruptions=False)
         except Exception:
-            pass  # El pre-calentamiento puede fallar, es normal
-        # Esperar a que Cartesia esté completamente listo
-        await asyncio.sleep(0.5)
+            pass  # Si falla, es normal — el objetivo es despertar el WS de Cartesia
+        # Esperar a que Cartesia WS procese y esté estable
+        await asyncio.sleep(2.0)
+        logger.info("📢 Enviando saludo real...")
         try:
             await self.session.say("Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?", allow_interruptions=False)
             logger.info("✅ Saludo inicial enviado a TTS.")
@@ -309,12 +311,14 @@ async def entrypoint(ctx: JobContext):
             temperature=0.4
         )
 
-    # --- SELECCIÓN DE TTS (BOCA) - SOLO CARTESIA ---
+    # --- SELECCIÓN DE TTS: Cartesia ---
     selected_tts = cartesia.TTS(
         api_key=os.getenv("CARTESIA_API_KEY"),
         model=tts_model if tts_model else "sonic-multilingual",
-        voice=tts_voice if tts_voice else "6511153f-72f9-4314-a204-8d8d8afd646a"
+        voice=tts_voice if tts_voice else "6511153f-72f9-4314-a204-8d8d8afd646a",
+        language="es"
     )
+    logger.info(f"🔊 TTS: Cartesia ({tts_model}) | Voz: {tts_voice}")
 
     # Configurar instancia del agente con prompt de la DB
     agent_instance = DefaultAgent(
