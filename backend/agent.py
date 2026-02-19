@@ -144,6 +144,9 @@ class DefaultAgent(Agent):
         url = f"{self.server_url}/guardar-encuesta"
         real_id = int(self.survey_id) if str(self.survey_id).isdigit() else id_encuesta
 
+        if status == 'completed' and not comentarios:
+            comentarios = "Sin comentarios"
+
         payload = {
             "id_encuesta": real_id,
             "nota_comercial": nota_comercial,
@@ -166,9 +169,9 @@ class DefaultAgent(Agent):
         """
         context.disallow_interruptions()
         
-        # Pausa ajustada para que el corte no sea brusco, pero tampoco tan largo
-        logger.info("⏳ Esperando 2.5s para colgar (permitiendo audio despedida)...")
-        await asyncio.sleep(2.5) 
+        # Pausa ajustada para permitir que la frase de despedida se escuche completa
+        logger.info("⏳ Esperando 4.0s para colgar (permitiendo audio despedida)...")
+        await asyncio.sleep(4.0) 
         
         url = f"{self.server_url}/colgar"
         payload = {"nombre_sala": nombre_sala}
