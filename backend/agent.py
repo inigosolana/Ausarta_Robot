@@ -113,9 +113,8 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
     async def on_enter(self):
         # Pequeño delay para asegurar que el socket de Cartesia esté listo
         await asyncio.sleep(1.0)
-        logger.info(f"📢 Intentando saludo inicial en sala {self.session.room.name}...")
+        logger.info(f"📢 Intentando saludo inicial | survey_id={self.survey_id}...")
         try:
-            # Usamos .say() para una frase fija
             await self.session.say("Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?", allow_interruptions=False)
             logger.info("✅ Saludo inicial enviado a TTS.")
         except Exception as e:
