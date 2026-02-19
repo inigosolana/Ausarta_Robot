@@ -107,6 +107,8 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
         super().__init__(
             instructions=final_instructions,
         )
+        # Flag para detectar si el LLM ya llamó a guardar_encuesta
+        self._data_saved = False
 
 
 
@@ -119,6 +121,22 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
             logger.info("✅ Saludo inicial enviado a TTS.")
         except Exception as e:
             logger.error(f"❌ Error al decir saludo inicial: {e}")
+
+    async def on_exit(self):
+        """Safety net: si el LLM nunca llamó a guardar_encuesta, guardamos al menos el estado."""
+        if not self._data_saved:
+            real_id = int(self.survey_id) if str(self.survey_id).isdigit() else 0
+            if real_id > 0:
+                logger.warning(f"⚠️ [SAFETY] guardar_encuesta NO fue llamada por el LLM. Guardando status=incomplete para ID={real_id}")
+                fallback_data = {
+                    "status": "incomplete",
+                    "llm_model": self.llm_model_name or "unknown"
+                }
+                await self._save_to_supabase(real_id, fallback_data)
+            else:
+                logger.warning("⚠️ [SAFETY] survey_id inválido, no se puede guardar fallback.")
+        else:
+            logger.info(f"✅ [EXIT] Datos ya guardados correctamente para survey_id={self.survey_id}.")
 
     async def _save_to_supabase(self, real_id: int, update_data: dict):
         """Guarda los datos directamente en Supabase (sin pasar por el bridge server)."""
@@ -175,7 +193,8 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
         
         logger.info(f"💾 [TOOL] guardar_encuesta → ID={real_id} | status={status} | datos={update_data}")
         # Guardado directo en Supabase (sin bridge server)
-        asyncio.create_task(self._save_to_supabase(real_id, update_data))
+        await self._save_to_supabase(real_id, update_data)
+        self._data_saved = True  # Marcar como guardado para que on_exit no sobreescriba
         return "Dato guardado."
 
     @function_tool(name="finalizar_llamada")
