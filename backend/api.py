@@ -622,129 +622,146 @@ async def get_campaign_details(campaign_id: int):
 # --- WORKER DE LLAMADAS (Background) ---
 
 async def process_campaigns():
-    """Bucle principal que busca leads pendientes y lanza llamadas"""
-    print("🚀 Iniciando Worker de Campañas (Supabase)...")
+    """Bucle principal que busca leads pendientes y lanza llamadas DE UNA EN UNA (Secuencial)"""
+    print("🚀 Iniciando Worker de Campañas SECUENCIAL (Supabase)...")
     
     while True:
         try:
             # 1. Buscar campañas activas
-            # SELECT * FROM campaigns WHERE status = 'active'
             res_camps = supabase.table("campaigns").select("*").eq("status", "active").execute()
             active_campaigns = res_camps.data
             
             for camp in active_campaigns:
                 campaign_id = camp['id']
                 max_retries = camp['retries_count']
-                retry_interval = camp['retry_interval']
-                agent_id = camp['agent_id']
+                retry_interval = camp['retry_interval'] or 3600 # Fallback
 
-                # 2. Buscar leads pendientes para esta campaña
-                # status='pending' OR (status='failed' AND retries < max AND next_try < now)
-                
+                # 2. Buscar 1 LEAD pendiente (Limit 1 para secuencialidad estricta)
                 now_str = datetime.utcnow().isoformat()
                 
-                # Primero 'pending'
+                # Prioridad 1: Pending
                 res_leads = supabase.table("campaign_leads").select("*") \
                     .eq("campaign_id", campaign_id) \
                     .eq("status", "pending") \
-                    .limit(5).execute() # Procesar de 5 en 5 para no saturar
+                    .limit(1).execute()
                 
                 leads_to_call = res_leads.data
                 
-                # Si no hay pending, buscar retries
+                # Prioridad 2: Retries (si no hay pending)
                 if not leads_to_call:
-                     # Supabase 'or' syntax is tricky inside python client for complex queries in one go without raw sql
-                     # Hacemos query separada para failed/unreached retriables
+                     # Intentar buscar retries (usando filter manual si raw SQL no disponible para OR complejo)
                      res_retries = supabase.table("campaign_leads").select("*") \
                         .eq("campaign_id", campaign_id) \
                         .in_("status", ["failed", "unreached", "incomplete"]) \
                         .lt("retries_attempted", max_retries) \
                         .lt("next_retry_at", now_str) \
-                        .limit(5).execute()
+                        .limit(1).execute()
                      leads_to_call = res_retries.data
 
                 if not leads_to_call:
                     continue # Siguiente campaña
 
-                print(f"🔄 [Worker] Procesando {len(leads_to_call)} leads para campaña {campaign_id}")
+                # Procesar EL lead (solo 1)
+                lead = leads_to_call[0]
+                lead_id = lead['id']
+                phone = lead['phone_number']
+                name = lead['customer_name']
+                
+                print(f"🔄 [Worker] Procesando lead {phone} (Campaña {campaign_id})...")
 
-                for lead in leads_to_call:
-                    lead_id = lead['id']
-                    phone = lead['phone_number']
-                    name = lead['customer_name']
-                    
-                    # CHEQUEO DE CONCURRENCIA: Verificar que no haya llamadas activas en el SIP Trunk
-                    # (Esto requiere lógica extra con LiveKit API para ver salas activas, 
-                    #  por simplicidad asumimos que lanzamos 1 a 1 con pausas)
-                    
-                    # Actualizar a 'calling'
-                    supabase.table("campaign_leads").update({
-                        "status": "calling", 
-                        "last_call_at": datetime.utcnow().isoformat(),
-                        "retries_attempted": lead['retries_attempted'] + 1
-                    }).eq("id", lead_id).execute()
-                    
-                    # 1. Crear entrada en 'encuestas' para tener ID
-                    encuesta_data = {
-                        "telefono": phone,
-                        "nombre_cliente": name,
-                        "fecha": datetime.now(timezone.utc).isoformat(),
-                        "status": "initiated",
-                        "completada": 0
-                    }
-                    res_enc = supabase.table("encuestas").insert(encuesta_data).execute()
-                    encuesta_id = res_enc.data[0]['id']
-                    
-                    # 2. Vincular lead con encuesta
-                    supabase.table("campaign_leads").update({"call_id": encuesta_id}).eq("id", lead_id).execute()
+                # Actualizar a 'calling'
+                supabase.table("campaign_leads").update({
+                    "status": "calling", 
+                    "last_call_at": datetime.utcnow().isoformat(),
+                    "retries_attempted": lead['retries_attempted'] + 1
+                }).eq("id", lead_id).execute()
+                
+                # 1. Crear entrada en 'encuestas'
+                encuesta_data = {
+                    "telefono": phone,
+                    "nombre_cliente": name,
+                    "fecha": datetime.now(timezone.utc).isoformat(),
+                    "status": "initiated",
+                    "completada": 0
+                }
+                res_enc = supabase.table("encuestas").insert(encuesta_data).execute()
+                encuesta_id = res_enc.data[0]['id']
+                
+                # 2. Vincular lead
+                supabase.table("campaign_leads").update({"call_id": encuesta_id}).eq("id", lead_id).execute()
 
-                    # 3. Lanzar Llamada
+                # 3. Lanzar Llamada y ESPERAR
+                try:
+                    print(f"📞 [Worker] Llamando a {phone} (Encuesta ID: {encuesta_id})...")
+                    
+                    sip_trunk_id = os.getenv("SIP_OUTBOUND_TRUNK_ID")
+                    room_name = f"encuesta_{encuesta_id}"
+                    
                     try:
-                        print(f"📞 [Worker] Llamando a {phone} (Encuesta ID: {encuesta_id})...")
-                        
-                        sip_trunk_id = os.getenv("SIP_OUTBOUND_TRUNK_ID")
-                        room_name = f"encuesta_{encuesta_id}"
-                        
-                        # Crear sala explícitamente para asegurar
-                        try:
-                            await lkapi.room.create_room(api.CreateRoomRequest(name=room_name))
-                        except: pass # Si ya existe no pasa nada
+                        await lkapi.room.create_room(api.CreateRoomRequest(name=room_name))
+                    except: pass 
 
-                        # Dial Out
-                        await lkapi.sip.create_sip_participant(api.CreateSIPParticipantRequest(
-                            sip_trunk_id=sip_trunk_id,
-                            sip_call_to=phone,
-                            room_name=room_name,
-                            participant_identity=f"user_{phone}",
-                            participant_name=name or "Cliente"
-                        ))
+                    await lkapi.sip.create_sip_participant(api.CreateSIPParticipantRequest(
+                        sip_trunk_id=sip_trunk_id,
+                        sip_call_to=phone,
+                        room_name=room_name,
+                        participant_identity=f"user_{phone}",
+                        participant_name=name or "Cliente"
+                    ))
+                    
+                    # --- WAIT LOOP (ESPERA ACTIVA) ---
+                    print(f"⏳ [Worker] Esperando finalización de llamada {encuesta_id}...")
+                    
+                    max_wait_seconds = 600 # 10 minutos máximo de llamada
+                    waited = 0
+                    call_finished = False
+                    
+                    while waited < max_wait_seconds:
+                        await asyncio.sleep(5) # Polling cada 5s
+                        waited += 5
                         
-                        # Esperamos un poco para no ametrallar al SIP Trunk
-                        await asyncio.sleep(5)
-                        
-                        # Actualizar a 'called' si no dio error inmediato
-                        supabase.table("campaign_leads").update({"status": "called"}).eq("id", lead_id).execute()
-                        
-                    except Exception as e:
-                        print(f"❌ [Worker] Error al llamar {phone}: {e}")
-                        # Marcar para retry
-                        next_retry = (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
+                        # Consultar estado encuesta
+                        r_status = supabase.table("encuestas").select("status, completada").eq("id", encuesta_id).execute()
+                        if r_status.data:
+                            s = r_status.data[0]
+                            st = s.get('status')
+                            comp = s.get('completada')
+                            
+                            # Criterio de fin: status final O completada=1
+                            if comp == 1 or st in ['completed', 'failed', 'rejected', 'rejected_opt_out', 'incomplete']:
+                                print(f"✅ [Worker] Llamada {encuesta_id} terminó con estado: {st}")
+                                call_finished = True
+                                break
+                    
+                    if not call_finished:
+                        print(f"⚠️ [Worker] Timeout esperando llamada {encuesta_id} (force break)")
+                        # Podríamos marcar como 'failed' en campaign_leads si quedó colgada
+                        # Pero dejamos que la lógica de retries lo coja luego si sigue 'calling' mucho tiempo?
+                        # Mejor forzar status update para liberar
                         supabase.table("campaign_leads").update({
-                            "status": "failed", 
-                            "next_retry_at": next_retry
+                            "status": "failed",
+                            "next_retry_at": (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
                         }).eq("id", lead_id).execute()
+                    else:
+                        # Actualizar estado final en campaign_leads basado en encuesta (ya lo hace guardar_encuesta, pero por si acaso)
+                        # guardar_encuesta actualiza el lead, así que aquí solo necesitamos esperar.
+                        # SOLO si quedó en 'initiated' o 'calling' tras acabar (raro), forzamos update.
+                        pass
 
-                # Verificar si campaña ha terminado
-                # Count pending or retriable
-                # Simplificación: si no encontramos leads arriba, podría haber terminado, 
-                # pero mejor comprobamos cuenta exacta.
-                
-                
+                except Exception as e:
+                    print(f"❌ [Worker] Error al llamar {phone}: {e}")
+                    # Marcar retry
+                    next_retry = (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
+                    supabase.table("campaign_leads").update({
+                        "status": "failed", 
+                        "next_retry_at": next_retry
+                    }).eq("id", lead_id).execute()
+
         except Exception as e:
             print(f"⚠️ [Worker Loop Error]: {e}")
-            await asyncio.sleep(30) # Esperar antes de reintentar si hay error grave
+            await asyncio.sleep(30)
             
-        await asyncio.sleep(10) # Pausa entre ciclos
+        await asyncio.sleep(2) # Pequeña pausa entre iteraciones de campañas
 
 @app.on_event("startup")
 async def startup_event():
