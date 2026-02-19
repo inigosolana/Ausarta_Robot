@@ -103,11 +103,19 @@ class DefaultAgent(Agent):
             PASO 5: CIERRE Y COMENTARIOS
             - Pregunta: "¿Algún comentario final?"
             - Si dice "NO", "NINGUNO":
+              - Di: "Perfecto. Gracias por su tiempo y adiós."
               - Usa 'guardar_encuesta' (comentarios="Sin comentarios", status='completed').
               - Usa 'finalizar_llamada' (mensaje_despedida="Perfecto. Gracias por su tiempo y adiós.").
             - Si dice COMENTARIO:
+              - Di: "Tomo nota. Gracias por su tiempo y adiós."
               - Usa 'guardar_encuesta' (comentarios=COMENTARIO, status='completed').
               - Usa 'finalizar_llamada' (mensaje_despedida="Tomo nota. Gracias por su tiempo y adiós.").
+
+            EXCEPCIÓN - USUARIO DICE 'NO' AL PRINCIPIO:
+            - Si a la pregunta "¿Tiene un momento?" el usuario dice "NO", "AHORA NO", "ESTOY OCUPADO":
+              - Di: "Entendido, disculpe las molestias. Gracias y adiós."
+              - Usa 'guardar_encuesta' (status='rejected').
+              - Usa 'finalizar_llamada' (mensaje_despedida="Entendido, disculpe las molestias. Gracias y adiós.").
 
             EXCEPCIÓN - BUZÓN DE VOZ / FUERA DE COBERTURA:
             - Si escuchas "fuera de cobertura", "móvil apagado", "buzón de voz", "contestador", "terminado el tiempo de grabación" o mensajes automáticos similares:
