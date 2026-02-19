@@ -219,13 +219,14 @@ async def guardar_encuesta(datos: FinEncuesta):
     if val_comentarios is not None and val_comentarios != "Sin comentarios":
         updates["comentarios"] = val_comentarios
     
+    # Lógica de estados
     if datos.status:
+        print(f"🔄 Actualizando status a: {datos.status}")
         updates["status"] = datos.status
         if datos.status == "completed":
              updates["completada"] = 1
     elif val_comentarios is not None:
          # Implicit completion if comments are passed locally (fallback)
-         # But the agent should now send status='completed'
          pass
 
     if not updates:
