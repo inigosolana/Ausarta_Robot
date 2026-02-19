@@ -48,6 +48,7 @@ load_dotenv()
 class DefaultAgent(Agent):
     def __init__(self, room_name: str) -> None:
         self.server_url = os.getenv("BRIDGE_SERVER_URL", "http://127.0.0.1:8001")
+        self.data_saved = False # Flag para evitar reintentos de guardado
         
         try:
             # Esperamos formatos: "encuesta_{ID}" O "encuesta_{ID}_{TIMESTAMP}"
