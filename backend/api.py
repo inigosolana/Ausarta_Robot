@@ -672,8 +672,11 @@ async def process_campaigns():
                 lead_id = lead['id']
                 phone = lead['phone_number']
                 name = lead['customer_name']
+                initial_status = lead['status']
                 
-                print(f"🔄 [Worker] Procesando lead {phone} (Campaña {campaign_id})...")
+                call_type = "REINTENTO" if initial_status in ['failed', 'unreached', 'incomplete', 'rejected'] else "LLAMADA NUEVA"
+                
+                print(f"🔄 [Worker] Procesando lead {phone} (Campaña {campaign_id}) | Tipo: {call_type}...")
 
                 # Actualizar a 'calling'
                 supabase.table("campaign_leads").update({
