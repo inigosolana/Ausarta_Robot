@@ -356,7 +356,32 @@ async def entrypoint(ctx: JobContext):
             ambient_sound=AudioConfig(BuiltinAudioClip.OFFICE_AMBIENCE, volume=0.1),
         )
         await background_audio.start(room=ctx.room, agent_session=session)
-    
+
+        # --- ESPERAR DESCONEXION (CRITICO PARA SAFETY NET) ---
+        logger.info("[SISTEMA] Esperando desconexion del participante...")
+        await ctx.wait_for_disconnect()
+        logger.info("[SISTEMA] Llamada terminada. Verificando si los datos fueron guardados...")
+
+        # --- SAFETY NET FINAL (100% garantizado) ---
+        if not agent_instance._data_saved:
+            survey_id_str = str(agent_instance.survey_id)
+            real_id = int(survey_id_str) if survey_id_str.isdigit() else 0
+            if real_id > 0 and supabase:
+                logger.warning(f"[FINAL SAVE] guardar_encuesta NO fue llamada -> guardando 'unreached' para ID={real_id}")
+                try:
+                    result = supabase.table("encuestas").update({
+                        "status": "unreached",
+                        "llm_model": agent_instance.llm_model_name or "unknown"
+                    }).eq("id", real_id).execute()
+                    rows = len(result.data) if result.data else 0
+                    logger.info(f"[FINAL SAVE] Guardado. Filas afectadas: {rows}")
+                except Exception as db_err:
+                    logger.error(f"[FINAL SAVE] Error al guardar: {db_err}")
+            else:
+                logger.warning(f"[FINAL SAVE] survey_id invalido o Supabase no disponible. survey_id={agent_instance.survey_id}")
+        else:
+            logger.info(f"[FINAL SAVE] Datos ya guardados correctamente. survey_id={agent_instance.survey_id}")
+
     except Exception as e:
         handle_error(e)
 
