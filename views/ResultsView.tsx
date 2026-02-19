@@ -47,7 +47,8 @@ const ResultsView: React.FC = () => {
         r.telefono.includes(searchTerm) ||
         (r.campaign_name && r.campaign_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (r.comentarios && r.comentarios.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (r.transcription && r.transcription.toLowerCase().includes(searchTerm.toLowerCase()))
+        (r.transcription && r.transcription.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (r.llm_model && r.llm_model.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
     const exportCSV = () => {
@@ -135,7 +136,7 @@ const ResultsView: React.FC = () => {
                         <tbody className="divide-y divide-gray-100">
                             {filteredResults.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                                    <td colSpan={8} className="px-6 py-12 text-center text-gray-400">
                                         No results found
                                     </td>
                                 </tr>
@@ -184,10 +185,10 @@ const ResultsView: React.FC = () => {
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex flex-col">
-                                            <span className="text-[10px] text-gray-400 font-mono tracking-tighter uppercase whitespace-nowrap">
+                                            <span className="text-[10px] text-blue-600 font-mono font-bold tracking-tighter uppercase whitespace-nowrap">
                                                 {row.llm_model?.split(' ')[0] || 'Primary'}
                                             </span>
-                                            <span className="text-xs font-semibold text-gray-700">
+                                            <span className="text-xs font-bold text-gray-900">
                                                 {row.llm_model?.replace('Google ', '').replace('Groq ', '') || 'Llama 3.3'}
                                             </span>
                                         </div>
