@@ -272,25 +272,22 @@ async def entrypoint(ctx: JobContext):
         voice=tts_voice if tts_voice else "6511153f-72f9-4314-a204-8d8d8afd646a"
     )
 
+    # Configurar instancia del agente con prompt de la DB
+    agent_instance = DefaultAgent(
+        room_name=ctx.room.name, 
+        instructions=instructions,
+        llm_model_name=llm_model
+    )
+
     try:
         session = AgentSession(
             stt=deepgram.STT(model="nova-2", language="es"),
             llm=selected_llm,
-            # Usa el TTS dinámico cargado de la DB
             tts=selected_tts,
             vad=vad_model,
+            fnc_ctx=agent_instance, # <--- Registra las herramientas del agente
             preemptive_generation=False, 
         )
-
-        # Configurar instancia del agente con prompt de la DB
-        agent_instance = DefaultAgent(
-            room_name=ctx.room.name, 
-            instructions=instructions,
-            llm_model_name=llm_model
-        )
-        
-        # Guardamos el saludo para usarlo en la llamada si es necesario
-        # (Depende de cómo manejes el inicio de la conversación)
         
         # --- MONITORIZACIÓN EN TIEMPO REAL ---
         
