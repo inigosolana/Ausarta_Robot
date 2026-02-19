@@ -313,13 +313,15 @@ async def entrypoint(ctx: JobContext):
 
     # --- SELECCIÓN DE TTS: Cartesia ---
     # NOTA: language="es" NO es un parámetro válido del constructor del plugin de livekit.
-    # Pasarlo puede causar que el stream falle silenciosamente.
+    # El usuario tenía la voz 'fb926b21-...' que daba Error 404 Voice Not Found.
+    # Usamos '6511153f-72f9-4314-a204-8d8d8afd646a' que es una voz fiable para español.
+    valid_voice = "6511153f-72f9-4314-a204-8d8d8afd646a"
     selected_tts = cartesia.TTS(
         api_key=os.getenv("CARTESIA_API_KEY"),
         model=tts_model if tts_model else "sonic-multilingual",
-        voice=tts_voice if tts_voice else "6511153f-72f9-4314-a204-8d8d8afd646a",
+        voice=tts_voice if tts_voice and tts_voice != "fb926b21-4d92-411a-85d0-9d06859e2171" else valid_voice,
     )
-    logger.info(f"🔊 TTS: Cartesia modelo={tts_model} | voz={tts_voice}")
+    logger.info(f"🔊 TTS: Cartesia modelo={tts_model} | voz={tts_voice if tts_voice else valid_voice}")
 
     # Configurar instancia del agente con prompt de la DB
     agent_instance = DefaultAgent(
