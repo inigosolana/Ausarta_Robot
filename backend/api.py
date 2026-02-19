@@ -785,10 +785,10 @@ async def process_campaigns():
                     }).eq("id", lead_id).execute()
 
                 # --- COOLDOWN ENTRE LLAMADAS ---
-                # Esperamos 10s para asegurar que Asterisk/LiveKit liberen totalmente los recursos
-                # y evitar solapamientos (que la siguiente llamada empiece mientras la anterior cierra).
-                print("⏳ [Worker] Cooldown de 10s antes del siguiente lead...")
-                await asyncio.sleep(10)
+                # Esperamos 120s (2 min) para asegurar que Asterisk/LiveKit liberen totalmente los recursos
+                # y para dar tiempo entre llamadas.
+                print("⏳ [Worker] Cooldown de 120s (2 min) antes del siguiente lead...")
+                await asyncio.sleep(120)
 
         except Exception as e:
             print(f"⚠️ [Worker Loop Error]: {e}")
