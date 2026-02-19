@@ -113,8 +113,8 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
 
 
     async def on_enter(self):
-        # Pequeño delay para asegurar que el socket de Cartesia esté listo
-        await asyncio.sleep(1.0)
+        # Delay generoso para que el socket de Cartesia esté completamente listo
+        await asyncio.sleep(2.5)
         logger.info(f"📢 Intentando saludo inicial | survey_id={self.survey_id}...")
         try:
             await self.session.say("Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?", allow_interruptions=False)
@@ -357,12 +357,18 @@ async def entrypoint(ctx: JobContext):
         )
         await background_audio.start(room=ctx.room, agent_session=session)
 
-        # --- ESPERAR DESCONEXION (CRITICO PARA SAFETY NET) ---
-        logger.info("[SISTEMA] Esperando desconexion del participante...")
-        await ctx.wait_for_disconnect()
-        logger.info("[SISTEMA] Llamada terminada. Verificando si los datos fueron guardados...")
+        # --- ESPERAR DESCONEXION USANDO ROOM EVENTS ---
+        disconnect_event = asyncio.Event()
 
-        # --- SAFETY NET FINAL (100% garantizado) ---
+        @ctx.room.on("disconnected")
+        def _on_room_disconnected():
+            disconnect_event.set()
+
+        logger.info("[SISTEMA] Esperando desconexion del participante via room event...")
+        await disconnect_event.wait()
+        logger.info("[SISTEMA] Room desconectado. Verificando si los datos fueron guardados...")
+
+        # --- SAFETY NET FINAL (100% garantizado, doble de on_exit) ---
         if not agent_instance._data_saved:
             survey_id_str = str(agent_instance.survey_id)
             real_id = int(survey_id_str) if survey_id_str.isdigit() else 0
@@ -378,9 +384,9 @@ async def entrypoint(ctx: JobContext):
                 except Exception as db_err:
                     logger.error(f"[FINAL SAVE] Error al guardar: {db_err}")
             else:
-                logger.warning(f"[FINAL SAVE] survey_id invalido o Supabase no disponible. survey_id={agent_instance.survey_id}")
+                logger.warning(f"[FINAL SAVE] survey_id invalido o Supabase no disponible.")
         else:
-            logger.info(f"[FINAL SAVE] Datos ya guardados correctamente. survey_id={agent_instance.survey_id}")
+            logger.info(f"[FINAL SAVE] Datos ya guardados. survey_id={agent_instance.survey_id}")
 
     except Exception as e:
         handle_error(e)
