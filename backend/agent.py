@@ -101,11 +101,11 @@ class DefaultAgent(Agent):
             PASO 5: CIERRE Y COMENTARIOS
             - Pregunta: "¿Algún comentario final?"
             - Si dice "NO", "NINGUNO":
-              HABLA PRIMERO: "Perfecto. Muchas gracias por su tiempo, que tenga buen día. Adiós."
-              LUEGO: 'guardar_encuesta' (status='completed') y 'finalizar_llamada'.
+              HABLA PRIMERO: "Perfecto. Gracias por su tiempo y adiós."
+              LUEGO: 'guardar_encuesta' (comentarios="Sin comentarios", status='completed') y 'finalizar_llamada'.
             - Si dice COMENTARIO:
-              HABLA PRIMERO: "Tomo nota. Muchas gracias por su tiempo, que tenga buen día. Adiós."
-              LUEGO: 'guardar_encuesta' (status='completed') y 'finalizar_llamada'.
+              HABLA PRIMERO: "Tomo nota. Gracias por su tiempo y adiós."
+              LUEGO: 'guardar_encuesta' (comentarios=COMENTARIO, status='completed') y 'finalizar_llamada'.
 
             EXCEPCIÓN INTERRUPCIÓN/COLGAR:
             - HABLA PRIMERO: "De acuerdo. Gracias, adiós."

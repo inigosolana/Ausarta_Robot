@@ -216,7 +216,7 @@ async def guardar_encuesta(datos: FinEncuesta):
     if val_comercial is not None: updates["puntuacion_comercial"] = val_comercial
     if val_instalador is not None: updates["puntuacion_instalador"] = val_instalador
     if val_rapidez is not None: updates["puntuacion_rapidez"] = val_rapidez
-    if val_comentarios is not None and val_comentarios != "Sin comentarios":
+    if val_comentarios is not None:
         updates["comentarios"] = val_comentarios
     
     # Lógica de estados
