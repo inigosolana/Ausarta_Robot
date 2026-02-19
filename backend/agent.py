@@ -82,8 +82,8 @@ class DefaultAgent(Agent):
             PASO 1: SALUDO
             - Di: "Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?"
             - Si dice NO o NO PUEDO o NO ME INTERESA: 
-              HABLA PRIMERO: "Entendido, disculpe las molestias. Gracias y adiós."
-              LUEGO (y solo después): Usa 'guardar_encuesta' (status='rejected') y 'finalizar_llamada'.
+              - Usa 'guardar_encuesta' (status='rejected').
+              - Usa 'finalizar_llamada' (mensaje_despedida="Entendido, disculpe las molestias. Gracias y adiós.").
             - Si dice SÍ: Ve INMEDIATAMENTE al PASO 2.
 
             PASO 2: NOTA COMERCIAL
@@ -101,15 +101,15 @@ class DefaultAgent(Agent):
             PASO 5: CIERRE Y COMENTARIOS
             - Pregunta: "¿Algún comentario final?"
             - Si dice "NO", "NINGUNO":
-              HABLA PRIMERO: "Perfecto. Gracias por su tiempo y adiós."
-              LUEGO: 'guardar_encuesta' (comentarios="Sin comentarios", status='completed') y 'finalizar_llamada'.
+              - Usa 'guardar_encuesta' (comentarios="Sin comentarios", status='completed').
+              - Usa 'finalizar_llamada' (mensaje_despedida="Perfecto. Gracias por su tiempo y adiós.").
             - Si dice COMENTARIO:
-              HABLA PRIMERO: "Tomo nota. Gracias por su tiempo y adiós."
-              LUEGO: 'guardar_encuesta' (comentarios=COMENTARIO, status='completed') y 'finalizar_llamada'.
+              - Usa 'guardar_encuesta' (comentarios=COMENTARIO, status='completed').
+              - Usa 'finalizar_llamada' (mensaje_despedida="Tomo nota. Gracias por su tiempo y adiós.").
 
             EXCEPCIÓN INTERRUPCIÓN/COLGAR:
-            - HABLA PRIMERO: "De acuerdo. Gracias, adiós."
-            - LUEGO: 'guardar_encuesta' (status='incomplete') y 'finalizar_llamada'.
+            - Usa 'guardar_encuesta' (status='incomplete').
+            - Usa 'finalizar_llamada' (mensaje_despedida="De acuerdo. Gracias, adiós.").
             """,
         )
 
@@ -161,16 +161,26 @@ class DefaultAgent(Agent):
 
     @function_tool(name="finalizar_llamada")
     async def _http_tool_finalizar_llamada(
-        self, context: RunContext, nombre_sala: str
+        self, context: RunContext, nombre_sala: str, mensaje_despedida: Optional[str] = None
     ) -> str | None:
         """
         Herramienta para colgar la llamada telefónica.
         Úsala siempre que la conversación deba terminar.
+        Args:
+            mensaje_despedida: Texto exacto que el agente debe decir antes de colgar (ej: "Gracias y adiós").
         """
         context.disallow_interruptions()
         
-        # Pausa ajustada para permitir que la frase de despedida se escuche completa
-        logger.info("⏳ Esperando 4.0s para colgar (permitiendo audio despedida)...")
+        if mensaje_despedida:
+            logger.info(f"🗣️ Generando despedida forzada: {mensaje_despedida}")
+            # Lanzamos la generación de audio en background pero el sleep asegura que se escuche
+            asyncio.create_task(self.session.generate_reply(
+                instructions=f"Di exactamente con tono natural y amable: '{mensaje_despedida}'",
+                allow_interruptions=False
+            ))
+        
+        # Pausa para permitir que la frase se escuche
+        logger.info("⏳ Esperando 4.0s para colgar...")
         await asyncio.sleep(4.0) 
         
         url = f"{self.server_url}/colgar"
