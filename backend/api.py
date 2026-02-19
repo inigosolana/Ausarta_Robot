@@ -745,24 +745,34 @@ async def process_campaigns():
                             comp = s.get('completada')
                             
                             # Criterio de fin: status final O completada=1
-                            if comp == 1 or st in ['completed', 'failed', 'rejected', 'rejected_opt_out', 'incomplete']:
+                            if comp == 1 or st in ['completed', 'failed', 'rejected', 'rejected_opt_out', 'incomplete', 'unreached']:
                                 print(f"✅ [Worker] Llamada {encuesta_id} terminó con estado: {st}")
                                 call_finished = True
+                                
+                                # --- FIX CRÍTICO: PROPAGACIÓN DE ESTADO ---
+                                # Actualizamos explícitamente el lead en campaign_leads con el estado final de la encuesta.
+                                # Esto asegura que no se quede en 'calling' eternamente.
+                                lead_update_payload = {"status": st}
+                                
+                                # Si el estado permite reintentos (failed, unreached, incomplete, y AHORA rejected a petición usuario),
+                                # calculamos el next_retry_at.
+                                if st in ['failed', 'unreached', 'incomplete', 'rejected']:
+                                    next_retry_time = (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
+                                    lead_update_payload["next_retry_at"] = next_retry_time
+                                    print(f"🔄 [Worker] Programando reintento para {phone} en {retry_interval}s")
+                                
+                                supabase.table("campaign_leads").update(lead_update_payload).eq("id", lead_id).execute()
+                                
                                 break
                     
                     if not call_finished:
                         print(f"⚠️ [Worker] Timeout esperando llamada {encuesta_id} (force break)")
-                        # Podríamos marcar como 'failed' en campaign_leads si quedó colgada
-                        # Pero dejamos que la lógica de retries lo coja luego si sigue 'calling' mucho tiempo?
-                        # Mejor forzar status update para liberar
+                        # Forzar status update a failed si hubo timeout
                         supabase.table("campaign_leads").update({
                             "status": "failed",
                             "next_retry_at": (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
                         }).eq("id", lead_id).execute()
                     else:
-                        # Actualizar estado final en campaign_leads basado en encuesta (ya lo hace guardar_encuesta, pero por si acaso)
-                        # guardar_encuesta actualiza el lead, así que aquí solo necesitamos esperar.
-                        # SOLO si quedó en 'initiated' o 'calling' tras acabar (raro), forzamos update.
                         pass
 
                 except Exception as e:

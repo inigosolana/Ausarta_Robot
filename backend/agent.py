@@ -146,6 +146,8 @@ class DefaultAgent(Agent):
         comentarios: Optional[str] = None,
         status: Optional[str] = None
     ) -> str | None:
+        self.data_saved = True # Flag para evitar reintentos de guardado
+        
         url = f"{self.server_url}/guardar-encuesta"
         real_id = int(self.survey_id) if str(self.survey_id).isdigit() else id_encuesta
 
@@ -179,8 +181,9 @@ class DefaultAgent(Agent):
         if mensaje_despedida:
              logger.info(f"🗣️ Despedida: {mensaje_despedida}")
         
-        logger.info("⏳ Esperando 3.0s para asegurar que se escuche la despedida...")
-        await asyncio.sleep(3.0) 
+        # Aumentado a 5.0s para evitar corte brusco
+        logger.info("⏳ Esperando 5.0s para asegurar que se escuche la despedida...")
+        await asyncio.sleep(5.0) 
         
         url = f"{self.server_url}/colgar"
         payload = {"nombre_sala": nombre_sala}
@@ -210,6 +213,8 @@ async def entrypoint(ctx: JobContext):
         else:
             logger.error(f"\n⚠️ ERROR DEL AGENTE: {error}\n")
 
+    agent_instance = DefaultAgent(room_name=ctx.room.name)
+
     try:
         session = AgentSession(
             stt=deepgram.STT(model="nova-3", language="es"),
@@ -234,7 +239,7 @@ async def entrypoint(ctx: JobContext):
             logger.info(f"TRANSCRIPCIÓN: {msg.alternatives[0].text}")
 
         await session.start(
-            agent=DefaultAgent(room_name=ctx.room.name),
+            agent=agent_instance,
             room=ctx.room,
             room_options=room_io.RoomOptions(
                 audio_input=room_io.AudioInputOptions(
@@ -250,6 +255,28 @@ async def entrypoint(ctx: JobContext):
     
     except Exception as e:
         handle_error(e)
+    
+    finally:
+        # --- BLOQUE DE SEGURIDAD PARA LLAMADAS FALLIDAS/NO CONTESTADAS ---
+        # Si el agente termina (por desconexión del usuario o error) y NO se han guardado datos,
+        # asumimos que la llamada fue 'unreached' o 'failed' y lo notificamos a la API 
+        # para liberar la cola de campañas.
+        if not agent_instance.data_saved:
+            logger.warning(f"⚠️ La sesión terminó sin guardar datos (Survey ID: {agent_instance.survey_id}). Marcando como 'unreached'...")
+            try:
+                # Usar un status 'unreached' por defecto si se colgó sin interacción
+                fallback_payload = {
+                    "id_encuesta": int(agent_instance.survey_id) if str(agent_instance.survey_id).isdigit() else 0,
+                    "status": "unreached",
+                    "comentarios": "Llamada finalizada sin datos (Posible No Contesta / Cuelgue inmediato)"
+                }
+                server_url = agent_instance.server_url
+                async with aiohttp.ClientSession() as sess:
+                    url = f"{server_url}/guardar-encuesta"
+                    async with sess.post(url, json=fallback_payload, timeout=5) as r:
+                         logger.info(f"✅ (Fallback) Status guardado como 'unreached'")
+            except Exception as ex:
+                 logger.error(f"❌ (Fallback) Error salvando fallback status: {ex}")
 
 if __name__ == "__main__":
     cli.run_app(server)
