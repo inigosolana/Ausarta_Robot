@@ -239,6 +239,16 @@ async def entrypoint(ctx: JobContext):
         def on_user_speech(msg: stt.SpeechEvent):
             print(f"\n🗣️  USUARIO DICE: {msg.alternatives[0].text}\n")
             logger.info(f"TRANSCRIPCIÓN: {msg.alternatives[0].text}")
+        
+        # --- FIX: Bloquear hasta desconexión ---
+        # session.start() inicia los listeners pero no bloquea indefinidamente.
+        # Necesitamos esperar explícitamente a que la sala se desconecte para no matar el proceso.
+        finished = asyncio.Event()
+
+        @ctx.room.on("disconnected")
+        def on_disconnect():
+            logger.info("🔌 Sala desconectada. Finalizando agente...")
+            finished.set()
 
         await session.start(
             agent=agent_instance,
@@ -254,6 +264,9 @@ async def entrypoint(ctx: JobContext):
             ambient_sound=AudioConfig(BuiltinAudioClip.OFFICE_AMBIENCE, volume=0.1),
         )
         await background_audio.start(room=ctx.room, agent_session=session)
+        
+        # Esperar hasta que la llamada termine
+        await finished.wait()
     
     except Exception as e:
         handle_error(e)
