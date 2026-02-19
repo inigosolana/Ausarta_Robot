@@ -584,9 +584,16 @@ async def get_campaign_details(campaign_id: int):
             call_id = l.get("call_id")
             survey = surveys_map.get(call_id)
             
-            l["encuesta"] = survey # Añadimos objeto encuesta anidado
+            l["encuesta"] = survey # Mantener anidado por si acaso
             
             if survey:
+                # Aplanar datos para el frontend (CampaignsView.tsx espera las keys en la raíz del objeto lead)
+                l['puntuacion_comercial'] = survey.get('puntuacion_comercial')
+                l['puntuacion_instalador'] = survey.get('puntuacion_instalador')
+                l['puntuacion_rapidez'] = survey.get('puntuacion_rapidez')
+                l['comentarios'] = survey.get('comentarios')
+                l['transcription_preview'] = survey.get('transcription') # Ojo: Frontend puede usar 'transcription_preview'
+
                 # Acumular para promedios si hay nota
                 if survey.get('puntuacion_comercial') is not None:
                     sum_com += survey['puntuacion_comercial']
