@@ -265,9 +265,11 @@ const DashboardView: React.FC = () => {
                                                 case 'incomplete':
                                                     return <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-blue-400 text-white uppercase shadow-sm">Incompleta</span>;
                                                 case 'rejected_opt_out':
-                                                    return <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-red-500 text-white uppercase shadow-sm">Rechazada Cliente</span>;
+                                                    return <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-red-500 text-white uppercase shadow-sm">Rechazada</span>;
                                                 case 'failed':
                                                     return <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-orange-400 text-white uppercase shadow-sm">Fallida</span>;
+                                                case 'initiated':
+                                                    return <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-yellow-400 text-white uppercase shadow-sm">En Curso</span>;
                                                 default:
                                                     return <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-gray-400 text-white uppercase shadow-sm">Pendiente</span>;
                                             }

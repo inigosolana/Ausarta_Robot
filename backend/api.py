@@ -166,7 +166,23 @@ async def get_recent_calls():
     if not supabase: return []
     try:
         response = supabase.table("encuestas").select("*").order("fecha", desc=True).limit(50).execute()
-        return response.data
+        # Mapeamos los campos de la BD al formato que espera el frontend
+        mapped = []
+        for r in response.data:
+            mapped.append({
+                "id": r.get("id"),
+                "phone": r.get("telefono", ""),
+                "campaign": r.get("campaign_name", r.get("nombre_cliente", "—")),
+                "date": r.get("fecha", ""),
+                "status": r.get("status", "pending"),
+                "llm_model": r.get("llm_model"),
+                "scores": {
+                    "comercial": r.get("puntuacion_comercial"),
+                    "instalador": r.get("puntuacion_instalador"),
+                    "rapidez": r.get("puntuacion_rapidez")
+                }
+            })
+        return mapped
     except Exception as e:
         print(f"Error recent calls: {e}")
         return []

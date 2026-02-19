@@ -125,7 +125,14 @@ class DefaultAgent(Agent):
         comentarios: Optional[str] = None
     ) -> str | None:
         url = f"{self.server_url}/guardar-encuesta"
+        # Siempre usamos el ID real de la sala para sobrescribir
         real_id = int(self.survey_id) if str(self.survey_id).isdigit() else id_encuesta
+
+        # Si tenemos las 3 notas, la encuesta está completa
+        has_all_scores = (nota_comercial is not None and 
+                          nota_instalador is not None and 
+                          nota_rapidez is not None)
+        status = "completed" if has_all_scores else "incomplete"
 
         payload = {
             "id_encuesta": real_id,
@@ -133,9 +140,11 @@ class DefaultAgent(Agent):
             "nota_instalador": nota_instalador,
             "nota_rapidez": nota_rapidez,
             "comentarios": comentarios,
-            "llm_model": self.llm_model_name
+            "llm_model": self.llm_model_name,
+            "status": status
         }
         
+        logger.info(f"💾 [TOOL] guardar_encuesta llamado → ID={real_id} | status={status} | payload={payload}")
         asyncio.create_task(self._fire_and_forget_save(url, payload))
         return "Dato guardado."
 
