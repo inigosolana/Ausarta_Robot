@@ -482,6 +482,17 @@ async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel
         print(f"Error creando campaña: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+@app.get("/api/campaigns")
+async def list_campaigns():
+    if not supabase: return []
+    try:
+        # Traer campañas ordenadas por fecha reciente
+        res = supabase.table("campaigns").select("*").order("created_at", desc=True).limit(20).execute()
+        return res.data
+    except Exception as e:
+        print(f"Error listing campaigns: {e}")
+        return []
+
 # --- WORKER DE LLAMADAS (Background) ---
 
 async def process_campaigns():
