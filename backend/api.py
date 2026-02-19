@@ -707,6 +707,17 @@ async def process_campaigns():
                         participant_identity=f"user_{phone}",
                         participant_name=name or "Cliente"
                     ))
+
+                    # 4. FORZAR UNIÓNN DEL AGENTE (Igual que en llamada de prueba)
+                    # Esto asegura que LiveKit mande al agente a la sala inmediatamente
+                    print(f"🚀 [Worker] Despachando agente 'Dakota-1ef9' a sala {room_name}...")
+                    try:
+                        await lkapi.agent_dispatch.create_dispatch(api.CreateAgentDispatchRequest(
+                            agent_name="Dakota-1ef9",
+                            room=room_name
+                        ))
+                    except Exception as e:
+                        print(f"⚠️ [Worker] No se pudo despachar agente (ya existe?): {e}")
                     
                     # --- WAIT LOOP (ESPERA ACTIVA) ---
                     print(f"⏳ [Worker] Esperando finalización de llamada {encuesta_id}...")
