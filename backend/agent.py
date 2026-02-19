@@ -285,8 +285,9 @@ async def entrypoint(ctx: JobContext):
             llm=selected_llm,
             tts=selected_tts,
             vad=vad_model,
-            fnc_ctx=agent_instance, # <--- Registra las herramientas del agente
-            preemptive_generation=False, 
+            preemptive_generation=False,
+            # Las herramientas @function_tool se descubren automáticamente
+            # cuando se llama a session.start(agent=agent_instance)
         )
         
         # --- MONITORIZACIÓN EN TIEMPO REAL ---
