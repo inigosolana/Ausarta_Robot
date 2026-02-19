@@ -493,6 +493,42 @@ async def list_campaigns():
         print(f"Error listing campaigns: {e}")
         return []
 
+@app.get("/api/campaigns/{campaign_id}")
+async def get_campaign_details(campaign_id: int):
+    if not supabase: return {"error": "No DB"}
+    try:
+        # 1. Obtener datos de la campaña
+        res_camp = supabase.table("campaigns").select("*").eq("id", campaign_id).execute()
+        if not res_camp.data:
+            return JSONResponse(status_code=404, content={"error": "Campaign not found"})
+        
+        campaign = res_camp.data[0]
+        
+        # 2. Obtener leads asociados
+        res_leads = supabase.table("campaign_leads").select("*").eq("campaign_id", campaign_id).execute()
+        leads = res_leads.data
+        
+        # 3. Calcular estadísticas básicas
+        stats = {
+            "total": len(leads),
+            "pending": sum(1 for l in leads if l['status'] == 'pending'),
+            "calling": sum(1 for l in leads if l['status'] == 'calling'),
+            "called": sum(1 for l in leads if l['status'] == 'called'),
+            "completed": sum(1 for l in leads if l['status'] == 'completed'),
+            "failed": sum(1 for l in leads if l['status'] == 'failed'),
+            "incomplete": sum(1 for l in leads if l['status'] == 'incomplete')
+        }
+        
+        return {
+            "campaign": campaign,
+            "stats": stats,
+            "leads": leads
+        }
+        
+    except Exception as e:
+        print(f"Error getting campaign details {campaign_id}: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 # --- WORKER DE LLAMADAS (Background) ---
 
 async def process_campaigns():
