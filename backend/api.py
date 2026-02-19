@@ -543,21 +543,76 @@ async def get_campaign_details(campaign_id: int):
         res_leads = supabase.table("campaign_leads").select("*").eq("campaign_id", campaign_id).execute()
         leads = res_leads.data
         
-        # 3. Calcular estadísticas básicas
+        # 3. Obtener encuestas asociadas para enriquecer datos
+        call_ids = [l['call_id'] for l in leads if l.get('call_id')]
+        surveys_map = {}
+        if call_ids:
+            try:
+                # Traer encuestas en batch (puede requerir paginación si son muchas, pero para MVP vale)
+                res_surveys = supabase.table("encuestas").select("*").in_("id", call_ids).execute()
+                for s in res_surveys.data:
+                    surveys_map[s['id']] = s
+            except Exception as e:
+                print(f"Error fetching surveys for campaign: {e}")
+
+        # 4. Calcular estadísticas y enriquecer leads
         stats = {
             "total": len(leads),
-            "pending": sum(1 for l in leads if l['status'] == 'pending'),
-            "calling": sum(1 for l in leads if l['status'] == 'calling'),
-            "called": sum(1 for l in leads if l['status'] == 'called'),
-            "completed": sum(1 for l in leads if l['status'] == 'completed'),
-            "failed": sum(1 for l in leads if l['status'] == 'failed'),
-            "incomplete": sum(1 for l in leads if l['status'] == 'incomplete')
+            "pending": 0,
+            "calling": 0,
+            "called": 0,
+            "completed": 0,
+            "failed": 0,
+            "incomplete": 0
+        }
+        
+        # Métricas de calidad (Promedios)
+        sum_com = 0; count_com = 0
+        sum_ins = 0; count_ins = 0
+        sum_rap = 0; count_rap = 0
+        
+        enriched_leads = []
+        
+        for l in leads:
+            status = l['status']
+            if status in stats:
+                stats[status] += 1
+            else:
+                # Fallback para estados raros
+                stats["pending"] += 1
+            
+            # Enriquecer con datos de encuesta
+            call_id = l.get("call_id")
+            survey = surveys_map.get(call_id)
+            
+            l["encuesta"] = survey # Añadimos objeto encuesta anidado
+            
+            if survey:
+                # Acumular para promedios si hay nota
+                if survey.get('puntuacion_comercial') is not None:
+                    sum_com += survey['puntuacion_comercial']
+                    count_com += 1
+                if survey.get('puntuacion_instalador') is not None:
+                    sum_ins += survey['puntuacion_instalador']
+                    count_ins += 1
+                if survey.get('puntuacion_rapidez') is not None:
+                    sum_rap += survey['puntuacion_rapidez']
+                    count_rap += 1
+            
+            enriched_leads.append(l)
+
+        metrics = {
+            "avg_comercial": round(sum_com / count_com, 1) if count_com > 0 else 0,
+            "avg_instalador": round(sum_ins / count_ins, 1) if count_ins > 0 else 0,
+            "avg_rapidez": round(sum_rap / count_rap, 1) if count_rap > 0 else 0,
+            "avg_overall": round((sum_com + sum_ins + sum_rap) / (count_com + count_ins + count_rap), 1) if (count_com + count_ins + count_rap) > 0 else 0
         }
         
         return {
             "campaign": campaign,
             "stats": stats,
-            "leads": leads
+            "metrics": metrics,
+            "leads": enriched_leads
         }
         
     except Exception as e:
