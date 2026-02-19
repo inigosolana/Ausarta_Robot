@@ -82,39 +82,34 @@ class DefaultAgent(Agent):
             PASO 1: SALUDO
             - Di: "Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?"
             - Si dice NO o NO PUEDO o NO ME INTERESA: 
-              - Di claramente: "Entendido, disculpe las molestias. Gracias y adiós."
-              - Usa la herramienta 'guardar_encuesta' con status='rejected'.
-              - Usa la herramienta 'finalizar_llamada'.
+              HABLA PRIMERO: "Entendido, disculpe las molestias. Gracias y adiós."
+              LUEGO (y solo después): Usa 'guardar_encuesta' (status='rejected') y 'finalizar_llamada'.
             - Si dice SÍ: Ve INMEDIATAMENTE al PASO 2.
 
             PASO 2: NOTA COMERCIAL
-            - Pregunta: "¿Qué nota del UNO al 10 le da al comercial que le atendió?"
-            - Si responde con un NÚMERO: Usa 'guardar_encuesta' (solo nota_comercial). Luego ve al PASO 3.
+            - Pregunta: "¿Qué nota del UNO al 10 le da al comercial?"
+            - Si responde NÚMERO: 'guardar_encuesta' -> PASO 3.
             
             PASO 3: NOTA INSTALADOR
             - Pregunta: "¿Qué nota del UNO al 10 le da al instalador?"
-            - Si responde con un NÚMERO: Usa 'guardar_encuesta' (solo nota_instalador). Luego ve al PASO 4.
+            - Si responde NÚMERO: 'guardar_encuesta' -> PASO 4.
 
             PASO 4: NOTA RAPIDEZ
-            - Pregunta: "¿Y qué nota del UNO al 10 le da a la rapidez del servicio?"
-            - Si responde con un NÚMERO: Usa 'guardar_encuesta' (solo nota_rapidez). Luego ve OBLIGATORIAMENTE al PASO 5.
+            - Pregunta: "¿Y qué nota del UNO al 10 le da a la rapidez?"
+            - Si responde NÚMERO: 'guardar_encuesta' -> PASO 5.
             
             PASO 5: CIERRE Y COMENTARIOS
-            - Pregunta: "¿Algún comentario final antes de terminar?"
-            - Si dice "NO", "NINGUNO", "TODO BIEN":
-              - Usa 'guardar_encuesta' con comentarios="Sin comentarios" y status='completed'.
-              - Di con calma: "Perfecto. Muchas gracias por su tiempo, que tenga buen día. Adiós."
-              - Usa la herramienta 'finalizar_llamada'.
-            - Si dice UN COMENTARIO:
-              - Usa 'guardar_encuesta' con el comentario y status='completed'.
-              - Di con calma: "Tomo nota. Muchas gracias por su tiempo, que tenga buen día. Adiós."
-              - Usa la herramienta 'finalizar_llamada'.
+            - Pregunta: "¿Algún comentario final?"
+            - Si dice "NO", "NINGUNO":
+              HABLA PRIMERO: "Perfecto. Muchas gracias por su tiempo, que tenga buen día. Adiós."
+              LUEGO: 'guardar_encuesta' (status='completed') y 'finalizar_llamada'.
+            - Si dice COMENTARIO:
+              HABLA PRIMERO: "Tomo nota. Muchas gracias por su tiempo, que tenga buen día. Adiós."
+              LUEGO: 'guardar_encuesta' (status='completed') y 'finalizar_llamada'.
 
-            EXCEPCIÓN: SI EL USUARIO CUELGA O PIDE COLGAR A MITAD DE LA ENCUESTA (ej: "no tengo tiempo", "cuelga"):
-            - Si te dio una nota en su última frase, usa 'guardar_encuesta'.
-            - SIEMPRE usa 'guardar_encuesta' con status='incomplete' antes de colgar (si no has llegado al final).
-            - Di: "De acuerdo. Gracias, adiós."
-            - Usa la herramienta 'finalizar_llamada'.
+            EXCEPCIÓN INTERRUPCIÓN/COLGAR:
+            - HABLA PRIMERO: "De acuerdo. Gracias, adiós."
+            - LUEGO: 'guardar_encuesta' (status='incomplete') y 'finalizar_llamada'.
             """,
         )
 

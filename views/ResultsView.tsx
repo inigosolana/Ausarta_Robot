@@ -158,8 +158,8 @@ const ResultsView: React.FC = () => {
                                                 return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-green-500 text-white uppercase shadow-sm">Completa</span>;
                                             } else if (row.status === 'incomplete') {
                                                 return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-blue-400 text-white uppercase shadow-sm">Incompleta</span>;
-                                            } else if (row.status === 'rejected_opt_out') {
-                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-500 text-white uppercase shadow-sm" title="Rechazada por Cliente">Rechazada Cliente</span>;
+                                            } else if (row.status === 'rejected_opt_out' || row.status === 'rejected') {
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-500 text-white uppercase shadow-sm" title="Rechazada por Cliente">Rechazada</span>;
                                             } else if (row.status === 'failed') {
                                                 return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-orange-400 text-white uppercase shadow-sm">Fallida</span>;
                                             } else {
