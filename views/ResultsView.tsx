@@ -203,12 +203,35 @@ const ResultsView: React.FC = () => {
                                         )}
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                        <button
-                                            onClick={() => setViewingTranscript(row)}
-                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1 text-xs ml-auto"
-                                        >
-                                            <FileText size={16} /> Transcription
-                                        </button>
+                                        <div className="flex justify-end items-center gap-2">
+                                            {(row.status === 'failed' || row.status === 'incomplete') && (
+                                                <button
+                                                    onClick={() => {
+                                                        const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
+                                                        fetch(`${API_URL}/api/calls/outbound`, {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ phoneNumber: row.telefono })
+                                                        })
+                                                            .then(res => {
+                                                                if (res.ok) alert(`Reintentando llamada a ${row.telefono}...`);
+                                                                else alert("Error al reintentar");
+                                                            })
+                                                            .catch(e => console.error(e));
+                                                    }}
+                                                    className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors flex items-center gap-1 text-xs"
+                                                    title="Reintentar llamada ahora"
+                                                >
+                                                    <RefreshCw size={16} /> Retry
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => setViewingTranscript(row)}
+                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1 text-xs"
+                                            >
+                                                <FileText size={16} /> Transcript
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

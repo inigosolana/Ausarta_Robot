@@ -262,8 +262,14 @@ async def guardar_encuesta(datos: EncuestaData):
         
         # Si la encuesta se completó o rechazó, actualizamos el LEAD asociado también
         # Buscamos el lead por call_id (que es el id_encuesta)
-        if datos.status in ('completed', 'rejected_opt_out', 'incomplete'):
+        if datos.status in ('completed', 'rejected_opt_out', 'incomplete', 'failed'):
              lead_update = {"status": datos.status}
+             
+             # Si es fallo o incompleta, programamos reintento automático (ej: en 5 mins)
+             if datos.status in ('incomplete', 'failed'):
+                 next_retry = (datetime.utcnow() + timedelta(minutes=5)).isoformat()
+                 lead_update["next_retry_at"] = next_retry
+             
              supabase.table("campaign_leads").update(lead_update).eq("call_id", datos.id_encuesta).execute()
 
         return {"status": "ok", "updated": update_data}
