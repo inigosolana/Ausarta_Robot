@@ -119,9 +119,17 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
 
 
     async def on_enter(self):
-        # Pequeño delay para asegurar que el socket de Cartesia esté listo
-        await asyncio.sleep(0.5)
+        # Delay mínimo para que el pipeline de audio esté listo
+        await asyncio.sleep(0.3)
         logger.info(f"📢 Intentando saludo inicial | survey_id={self.survey_id}...")
+        # Pre-calentar Cartesia TTS: enviar un texto muy corto primero para inicializar
+        # el WebSocket interno y evitar el error "no audio frames" en el saludo real
+        try:
+            await self.session.say(" ", allow_interruptions=False)
+        except Exception:
+            pass  # El pre-calentamiento puede fallar, es normal
+        # Esperar a que Cartesia esté completamente listo
+        await asyncio.sleep(0.5)
         try:
             await self.session.say("Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?", allow_interruptions=False)
             logger.info("✅ Saludo inicial enviado a TTS.")
@@ -139,6 +147,7 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
                     "llm_model": self.llm_model_name or "unknown"
                 }
                 await self._save_to_supabase(real_id, fallback_data)
+                self._data_saved = True  # ← CRÍTICO: evitar que FINAL SAVE sobreescriba con 'unreached'
             else:
                 logger.warning("⚠️ [SAFETY] survey_id inválido, no se puede guardar fallback.")
         else:
@@ -353,6 +362,9 @@ async def entrypoint(ctx: JobContext):
                 audio_input=room_io.AudioInputOptions(
                     noise_cancellation=lambda params: noise_cancellation.BVCTelephony() if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP else noise_cancellation.BVC(),
                 ),
+                # No cerrar la sesión automáticamente al desconectarse:
+                # controlamos el cierre manualmente para garantizar que on_exit se ejecuta
+                close_on_disconnect=False,
             ),
         )
         
@@ -363,36 +375,47 @@ async def entrypoint(ctx: JobContext):
         )
         await background_audio.start(room=ctx.room, agent_session=session)
 
-        # --- ESPERAR DESCONEXION USANDO ROOM EVENTS ---
+        # --- ESPERAR DESCONEXION: usar participant_disconnected para detectar cuelgue del usuario ---
         disconnect_event = asyncio.Event()
+
+        @ctx.room.on("participant_disconnected")
+        def _on_participant_disconnected(participant):
+            # Solo reaccionar al participante SIP/usuario (no al agente mismo)
+            if participant.identity != ctx.room.local_participant.identity:
+                logger.info(f"[SISTEMA] Participante desconectado: {participant.identity}")
+                disconnect_event.set()
 
         @ctx.room.on("disconnected")
         def _on_room_disconnected():
             disconnect_event.set()
 
-        logger.info("[SISTEMA] Esperando desconexion del participante via room event...")
+        logger.info("[SISTEMA] Esperando desconexion del participante...")
         await disconnect_event.wait()
-        logger.info("[SISTEMA] Room desconectado. Verificando si los datos fueron guardados...")
+        logger.info("[SISTEMA] Llamada terminada. Cerrando sesión limpiamente...")
 
-        # --- SAFETY NET FINAL (100% garantizado, doble de on_exit) ---
+        # Cerrar la sesión del agente manualmente (garantiza que on_exit se ejecute)
+        await session.aclose()
+        logger.info("[SISTEMA] Sesión cerrada. Verificando si los datos fueron guardados...")
+
+        # --- SAFETY NET FINAL (solo si on_exit NO pudo guardar) ---
         if not agent_instance._data_saved:
             survey_id_str = str(agent_instance.survey_id)
             real_id = int(survey_id_str) if survey_id_str.isdigit() else 0
             if real_id > 0 and supabase:
-                logger.warning(f"[FINAL SAVE] guardar_encuesta NO fue llamada -> guardando 'unreached' para ID={real_id}")
+                logger.warning(f"[FINAL SAVE] Ningún guardado previo detectado -> guardando 'unreached' para ID={real_id}")
                 try:
                     result = supabase.table("encuestas").update({
                         "status": "unreached",
                         "llm_model": agent_instance.llm_model_name or "unknown"
                     }).eq("id", real_id).execute()
                     rows = len(result.data) if result.data else 0
-                    logger.info(f"[FINAL SAVE] Guardado. Filas afectadas: {rows}")
+                    logger.info(f"[FINAL SAVE] Guardado correctamente. Filas afectadas: {rows}")
                 except Exception as db_err:
                     logger.error(f"[FINAL SAVE] Error al guardar: {db_err}")
             else:
-                logger.warning(f"[FINAL SAVE] survey_id invalido o Supabase no disponible.")
+                logger.warning(f"[FINAL SAVE] survey_id inválido o Supabase no disponible.")
         else:
-            logger.info(f"[FINAL SAVE] Datos ya guardados. survey_id={agent_instance.survey_id}")
+            logger.info(f"[FINAL SAVE] ✅ Datos ya guardados correctamente. survey_id={agent_instance.survey_id}")
 
     except Exception as e:
         handle_error(e)
