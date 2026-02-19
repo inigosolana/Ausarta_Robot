@@ -55,7 +55,7 @@ class CampaignCreate(BaseModel):
     scheduled_time: Optional[datetime] = None
     leads_csv: Optional[str] = None # Contenido CSV en base64 o raw string
     retries_count: int = 3
-    retry_interval: int = 180 # Segundos
+    retry_interval: int = 60 # Minutos - Default 1 hora
 
 class CampaignLeadModel(BaseModel):
     phone_number: str
@@ -265,9 +265,26 @@ async def guardar_encuesta(datos: EncuestaData):
         if datos.status in ('completed', 'rejected_opt_out', 'incomplete', 'failed'):
              lead_update = {"status": datos.status}
              
-             # Si es fallo o incompleta, programamos reintento automático (ej: en 5 mins)
+             # Si es fallo o incompleta, programamos reintento automático
              if datos.status in ('incomplete', 'failed'):
-                 next_retry = (datetime.utcnow() + timedelta(minutes=5)).isoformat()
+                 # Intentar obtener el intervalo de reintento de la campaña
+                 retry_seconds = 3600 # Default 1 hora
+                 try:
+                     # Obtener campaign_id del lead
+                     lead_res = supabase.table("campaign_leads").select("campaign_id").eq("call_id", datos.id_encuesta).limit(1).execute()
+                     if lead_res.data:
+                         camp_id = lead_res.data[0]['campaign_id']
+                         # Obtener retry_interval de la campaña
+                         camp_res = supabase.table("campaigns").select("retry_interval").eq("id", camp_id).limit(1).execute()
+                         if camp_res.data:
+                             camp_retry = camp_res.data[0]['retry_interval']
+                             # Asegurarse que sea un valor razonable
+                             if camp_retry and camp_retry > 0:
+                                 retry_seconds = camp_retry
+                 except Exception as ex_interval:
+                     print(f"⚠️ Error fetching campaign retry interval: {ex_interval}")
+
+                 next_retry = (datetime.utcnow() + timedelta(seconds=retry_seconds)).isoformat()
                  lead_update["next_retry_at"] = next_retry
              
              supabase.table("campaign_leads").update(lead_update).eq("call_id", datos.id_encuesta).execute()
@@ -440,19 +457,37 @@ async def update_settings_alias(config: dict):
 
 # --- CAMPAIGN MANAGEMENT ---
 
+@app.delete("/api/campaigns/{campaign_id}")
+async def delete_campaign(campaign_id: int):
+    if not supabase: return {"error": "No DB"}
+    try:
+        # Borrar leads primero (aunque Cascade delete en DB debería hacerlo, mejor asegurar)
+        supabase.table("campaign_leads").delete().eq("campaign_id", campaign_id).execute()
+        # Borrar campaña
+        supabase.table("campaigns").delete().eq("id", campaign_id).execute()
+        return {"status": "ok", "message": f"Campaña {campaign_id} eliminada"}
+    except Exception as e:
+        print(f"Error deleting campaign: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 @app.post("/api/campaigns")
 async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel]):
     if not supabase: return {"error": "No DB"}
     
     try:
+        # Lógica de auto-activación
+        status_final = campaign.status
+        if not campaign.scheduled_time and status_final == 'pending':
+            status_final = 'active'
+
         # 1. Crear Campaña
         camp_data = {
             "name": campaign.name,
             "agent_id": campaign.agent_id,
-            "status": campaign.status,
+            "status": status_final,
             "scheduled_time": campaign.scheduled_time.isoformat() if campaign.scheduled_time else None,
             "retries_count": campaign.retries_count,
-            "retry_interval": campaign.retry_interval,
+            "retry_interval": campaign.retry_interval * 60, # Convertir minutos a segundos para consistencia interna
             "created_at": datetime.utcnow().isoformat()
         }
         res_camp = supabase.table("campaigns").insert(camp_data).execute()
@@ -472,8 +507,8 @@ async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel
         if leads_data:
             supabase.table("campaign_leads").insert(leads_data).execute()
             
-        # 3. Lanzar worker en background si es instantánea
-        if campaign.status == 'active':
+        # 3. Lanzar worker en background si es activa
+        if status_final == 'active':
              asyncio.create_task(process_campaigns())
              
         return {"id": campaign_id, "message": f"Campaña creada con {len(leads_data)} leads"}
@@ -660,4 +695,3 @@ async def process_campaigns():
 async def startup_event():
     print("🌅 Iniciando API (Supabase Integration)...")
     asyncio.create_task(process_campaigns())
-
