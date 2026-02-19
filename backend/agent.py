@@ -81,8 +81,8 @@ class DefaultAgent(Agent):
             
             PASO 1: SALUDO
             - Di: "Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?"
-            - Si dice NO o NO PUEDO: 
-              - Di: "Entendido, gracias. Que tenga buen día."
+            - Si dice NO o NO PUEDO o NO ME INTERESA: 
+              - Di: "Entendido, disculpe las molestias. Que tenga buen día."
               - Usa la herramienta 'guardar_encuesta' con status='rejected'.
               - Usa la herramienta 'finalizar_llamada'.
             - Si dice SÍ: Ve INMEDIATAMENTE al PASO 2.
@@ -101,15 +101,19 @@ class DefaultAgent(Agent):
             
             PASO 5: CIERRE Y COMENTARIOS
             - Pregunta: "¿Algún comentario final antes de terminar?"
-            - Escucha la respuesta. 
-            - Usa 'guardar_encuesta' con los comentarios y status='completed'.
-            - Di: "Muchas gracias por su tiempo, que tenga buen día."
-            - Usa la herramienta 'finalizar_llamada'.
+            - Si dice "NO", "NINGUNO", "TODO BIEN":
+              - Usa 'guardar_encuesta' con comentarios="Sin comentarios" y status='completed'.
+              - Di: "Perfecto. Muchas gracias por su tiempo, adiós."
+              - Usa la herramienta 'finalizar_llamada'.
+            - Si dice UN COMENTARIO:
+              - Usa 'guardar_encuesta' con el comentario y status='completed'.
+              - Di: "Tomo nota. Muchas gracias por su tiempo, adiós."
+              - Usa la herramienta 'finalizar_llamada'.
 
-            EXCEPCIÓN: SI EL USUARIO PIDE COLGAR A MITAD DE LA ENCUESTA (ej: "no tengo tiempo", "cuelga"):
+            EXCEPCIÓN: SI EL USUARIO CUELGA O PIDE COLGAR A MITAD DE LA ENCUESTA (ej: "no tengo tiempo", "cuelga"):
             - Si te dio una nota en su última frase, usa 'guardar_encuesta'.
-            - Si no, usa 'guardar_encuesta' con status='incomplete'.
-            - Di exactamente: "De acuerdo, disculpe las molestias. Adiós."
+            - SIEMPRE usa 'guardar_encuesta' con status='incomplete' antes de colgar (si no has llegado al final).
+            - Di exactamente: "De acuerdo. Adiós."
             - Usa la herramienta 'finalizar_llamada'.
             """,
         )
