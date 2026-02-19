@@ -507,9 +507,8 @@ async def create_campaign(campaign: CampaignModel, leads: List[CampaignLeadModel
         if leads_data:
             supabase.table("campaign_leads").insert(leads_data).execute()
             
-        # 3. Lanzar worker en background si es activa
-        if status_final == 'active':
-             asyncio.create_task(process_campaigns())
+        # El worker ya está corriendo en background desde el startup y detectará la nueva campaña activa
+        # No lanzamos otro process_campaigns() aquí para evitar concurrencia duplicada.
              
         return {"id": campaign_id, "message": f"Campaña creada con {len(leads_data)} leads"}
         
