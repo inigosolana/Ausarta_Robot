@@ -125,6 +125,8 @@ class DefaultAgent(Agent):
             EXCEPCIÓN INTERRUPCIÓN/COLGAR:
             - Usa 'guardar_encuesta' (status='incomplete').
             - Usa 'finalizar_llamada' (mensaje_despedida="De acuerdo. Gracias, adiós.").
+
+            NOTA FINAL: UNA VEZ LLAMES A 'finalizar_llamada', LA CONVERSACIÓN HA TERMINADO. NO RESPONDAS A NADA MÁS.
             """,
         )
 
@@ -186,14 +188,13 @@ class DefaultAgent(Agent):
         """
         context.disallow_interruptions()
         
-        # Si hay mensaje de despedida, lo logueamos, pero confiamos en que el agente
-        # ya lo ha dicho o lo está diciendo como parte de su respuesta de texto.
+        # Si hay mensaje de despedida, lo logueamos
         if mensaje_despedida:
              logger.info(f"🗣️ Despedida: {mensaje_despedida}")
         
-        # Aumentado a 5.0s para evitar corte brusco
-        logger.info("⏳ Esperando 5.0s para asegurar que se escuche la despedida...")
-        await asyncio.sleep(5.0) 
+        # Reducido a 3.0s para evitar que el usuario vuelva a hablar y confunda al agente
+        logger.info("⏳ Esperando 3.0s para asegurar que se escuche la despedida...")
+        await asyncio.sleep(3.0) 
         
         url = f"{self.server_url}/colgar"
         payload = {"nombre_sala": nombre_sala}
