@@ -106,13 +106,20 @@ class DefaultAgent(Agent):
         except Exception as e:
             logger.error(f"❌ Error al decir saludo inicial: {e}")
 
-    async def _fire_and_forget_save(self, url, payload):
+    async def _save_to_supabase(self, real_id: int, update_data: dict):
+        """Guarda los datos directamente en Supabase (sin pasar por el bridge server)."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, timeout=2) as resp:
-                    logger.info(f"✅ (Background) Guardado ID {payload.get('id_encuesta')}: {payload}")
+            if not supabase:
+                logger.error("❌ [SAVE] No hay conexión a Supabase en el agente.")
+                return
+            result = supabase.table("encuestas").update(update_data).eq("id", real_id).execute()
+            logger.info(f"✅ [SAVE] Encuesta ID={real_id} guardada en Supabase: {update_data}")
+            # Si completed/incomplete, actualizar también campaign_leads
+            status = update_data.get("status")
+            if status in ("completed", "incomplete", "rejected_opt_out"):
+                supabase.table("campaign_leads").update({"status": status}).eq("call_id", real_id).execute()
         except Exception as e:
-            logger.error(f"❌ (Background) Error: {e}")
+            logger.error(f"❌ [SAVE] Error al guardar en Supabase ID={real_id}: {e}")
 
     @function_tool(name="guardar_encuesta")
     async def _http_tool_guardar_encuesta(
@@ -124,8 +131,7 @@ class DefaultAgent(Agent):
         nota_rapidez: Optional[int] = None, 
         comentarios: Optional[str] = None
     ) -> str | None:
-        url = f"{self.server_url}/guardar-encuesta"
-        # Siempre usamos el ID real de la sala para sobrescribir
+        # Siempre usamos el ID de la sala (más fiable que el que pasa el LLM)
         real_id = int(self.survey_id) if str(self.survey_id).isdigit() else id_encuesta
 
         # Si tenemos las 3 notas, la encuesta está completa
@@ -134,18 +140,17 @@ class DefaultAgent(Agent):
                           nota_rapidez is not None)
         status = "completed" if has_all_scores else "incomplete"
 
-        payload = {
-            "id_encuesta": real_id,
-            "nota_comercial": nota_comercial,
-            "nota_instalador": nota_instalador,
-            "nota_rapidez": nota_rapidez,
-            "comentarios": comentarios,
-            "llm_model": self.llm_model_name,
-            "status": status
-        }
+        update_data = {"status": status}
+        if nota_comercial is not None: update_data["puntuacion_comercial"] = nota_comercial
+        if nota_instalador is not None: update_data["puntuacion_instalador"] = nota_instalador
+        if nota_rapidez is not None: update_data["puntuacion_rapidez"] = nota_rapidez
+        if comentarios is not None: update_data["comentarios"] = comentarios
+        if self.llm_model_name: update_data["llm_model"] = self.llm_model_name
+        if has_all_scores: update_data["completada"] = 1
         
-        logger.info(f"💾 [TOOL] guardar_encuesta llamado → ID={real_id} | status={status} | payload={payload}")
-        asyncio.create_task(self._fire_and_forget_save(url, payload))
+        logger.info(f"💾 [TOOL] guardar_encuesta → ID={real_id} | status={status} | datos={update_data}")
+        # Guardado directo en Supabase (sin bridge server)
+        asyncio.create_task(self._save_to_supabase(real_id, update_data))
         return "Dato guardado."
 
     @function_tool(name="finalizar_llamada")
