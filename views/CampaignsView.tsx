@@ -470,12 +470,12 @@ export function CampaignsView() {
                         <span className={`px-2 py-1 rounded-full text-xs font-medium 
                                         ${lead.status === 'completed' ? 'bg-green-100 text-green-800' :
                             lead.status === 'called' ? 'bg-blue-100 text-blue-800' :
-                              lead.status === 'failed' ? 'bg-red-100 text-red-800' :
-                                lead.status === 'unreached' ? 'bg-orange-100 text-orange-800' :
-                                  lead.status === 'incomplete' ? 'bg-purple-100 text-purple-800' :
-                                    lead.status === 'rejected_opt_out' ? 'bg-red-200 text-red-900' : 'bg-gray-100 text-gray-800'}`}>
-                          {lead.status === 'unreached' ? 'No Contestó' :
-                            lead.status === 'rejected_opt_out' ? 'Rechazada' :
+                              lead.status === 'failed' ? 'bg-purple-100 text-purple-900' :
+                                lead.status === 'unreached' ? 'bg-amber-100 text-amber-900' :
+                                  lead.status === 'incomplete' ? 'bg-blue-50 text-blue-800' :
+                                    (lead.status === 'rejected_opt_out' || lead.status === 'rejected') ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
+                          {lead.status === 'unreached' ? 'No Contesta' :
+                            (lead.status === 'rejected_opt_out' || lead.status === 'rejected') ? 'Rechazada' :
                               lead.status === 'completed' ? 'Completada' :
                                 lead.status === 'incomplete' ? 'Incompleta' :
                                   lead.status === 'failed' ? 'Fallida' :

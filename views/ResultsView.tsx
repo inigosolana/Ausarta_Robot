@@ -159,9 +159,11 @@ const ResultsView: React.FC = () => {
                                             } else if (row.status === 'incomplete') {
                                                 return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-blue-400 text-white uppercase shadow-sm">Incompleta</span>;
                                             } else if (row.status === 'rejected_opt_out' || row.status === 'rejected') {
-                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-500 text-white uppercase shadow-sm" title="Rechazada por Cliente">Rechazada</span>;
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-600 text-white uppercase shadow-sm" title="Rechazada por Cliente">Rechazada</span>;
                                             } else if (row.status === 'failed') {
-                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-orange-400 text-white uppercase shadow-sm">Fallida</span>;
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-purple-500 text-white uppercase shadow-sm">Fallida</span>;
+                                            } else if (row.status === 'unreached') {
+                                                return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-amber-400 text-white uppercase shadow-sm">No Contesta</span>;
                                             } else {
                                                 return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-gray-400 text-white uppercase shadow-sm">Pendiente</span>;
                                             }
