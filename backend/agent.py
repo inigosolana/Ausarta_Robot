@@ -96,8 +96,15 @@ class DefaultAgent(Agent):
 
 
     async def on_enter(self):
-        # Usamos .say() para una frase fija, es más robusto que pedírselo al LLM
-        await self.session.say("Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?", allow_interruptions=False)
+        # Pequeño delay para asegurar que el socket de Cartesia esté listo
+        await asyncio.sleep(1.0)
+        logger.info(f"📢 Intentando saludo inicial en sala {self.session.room.name}...")
+        try:
+            # Usamos .say() para una frase fija
+            await self.session.say("Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?", allow_interruptions=False)
+            logger.info("✅ Saludo inicial enviado a TTS.")
+        except Exception as e:
+            logger.error(f"❌ Error al decir saludo inicial: {e}")
 
     async def _fire_and_forget_save(self, url, payload):
         try:
@@ -231,9 +238,9 @@ async def entrypoint(ctx: JobContext):
 
     # --- SELECCIÓN DE TTS (BOCA) - SOLO CARTESIA ---
     selected_tts = cartesia.TTS(
+        api_key=os.getenv("CARTESIA_API_KEY"),
         model=tts_model if tts_model else "sonic-multilingual",
-        voice=tts_voice if tts_voice else "6511153f-72f9-4314-a204-8d8d8afd646a",
-        language="es"
+        voice=tts_voice if tts_voice else "6511153f-72f9-4314-a204-8d8d8afd646a"
     )
 
     try:
