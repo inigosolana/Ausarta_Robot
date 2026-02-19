@@ -452,6 +452,7 @@ export function CampaignsView() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Nombre</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Teléfono</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Estado e Intentos</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase w-1/3">Notas y Transcripción</th>
@@ -462,7 +463,8 @@ export function CampaignsView() {
               <tbody className="divide-y divide-gray-100">
                 {campaignLeads.map((lead) => (
                   <tr key={lead.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{lead.phone_number}</td>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{lead.customer_name || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500">{lead.phone_number}</td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1 items-start">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium 
