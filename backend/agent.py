@@ -107,6 +107,11 @@ class DefaultAgent(Agent):
               - Usa 'guardar_encuesta' (comentarios=COMENTARIO, status='completed').
               - Usa 'finalizar_llamada' (mensaje_despedida="Tomo nota. Gracias por su tiempo y adiós.").
 
+            EXCEPCIÓN - BUZÓN DE VOZ / FUERA DE COBERTURA:
+            - Si escuchas "fuera de cobertura", "móvil apagado", "buzón de voz", "contestador", "terminado el tiempo de grabación" o mensajes automáticos similares:
+              - Usa 'guardar_encuesta' (status='failed').
+              - Usa 'finalizar_llamada' (mensaje_despedida="").
+
             EXCEPCIÓN INTERRUPCIÓN/COLGAR:
             - Usa 'guardar_encuesta' (status='incomplete').
             - Usa 'finalizar_llamada' (mensaje_despedida="De acuerdo. Gracias, adiós.").
