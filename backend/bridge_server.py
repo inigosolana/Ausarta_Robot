@@ -44,6 +44,7 @@ class FinEncuesta(BaseModel):
     nota_instalador: Union[int, str, None] = None
     nota_rapidez: Union[int, str, None] = None
     comentarios: Optional[str] = None 
+    status: Optional[str] = None
 
 class ColgarLlamada(BaseModel):
     nombre_sala: str 
@@ -65,6 +66,7 @@ def get_dashboard_stats_supabase():
         completed = res_completed.count if res_completed.count is not None else 0
         
         # 3. Pending
+        # Consideramos pending si status es initiated/pending
         res_pending = supabase.table("encuestas").select("count", count="exact").eq("completada", 0).execute()
         pending = res_pending.count if res_pending.count is not None else 0
         
@@ -115,6 +117,10 @@ def get_calls_supabase(limit=50):
         calls = res.data
         mapped = []
         for c in calls:
+            # Map status nicely
+            raw_status = c.get('status', 'initiated')
+            if c.get('completada'): raw_status = 'completed'
+            
             mapped.append({
                 "id": c['id'],
                 "telefono": c.get('telefono'),
@@ -124,7 +130,7 @@ def get_calls_supabase(limit=50):
                 "fecha": c.get('fecha'),
                 "date": c.get('fecha'),
                 "completada": c.get('completada'),
-                "status": "completed" if c.get('completada') else "initiated",
+                "status": raw_status,
                 "scores": {
                     "comercial": c.get('puntuacion_comercial'),
                     "instalador": c.get('puntuacion_instalador'),
@@ -152,7 +158,8 @@ async def iniciar_encuesta(datos: InicioEncuesta):
         data = {
             "telefono": datos.telefono,
             "fecha": datetime.now().isoformat(),
-            "completada": 0
+            "completada": 0,
+            "status": "initiated"
         }
         res = supabase.table("encuestas").insert(data).execute()
         if res.data:
@@ -211,13 +218,19 @@ async def guardar_encuesta(datos: FinEncuesta):
     if val_rapidez is not None: updates["puntuacion_rapidez"] = val_rapidez
     if val_comentarios is not None and val_comentarios != "Sin comentarios":
         updates["comentarios"] = val_comentarios
+    
+    if datos.status:
+        updates["status"] = datos.status
+        if datos.status == "completed":
+             updates["completada"] = 1
+    elif val_comentarios is not None:
+         # Implicit completion if comments are passed locally (fallback)
+         # But the agent should now send status='completed'
+         pass
 
     if not updates:
         print("⚠️ Llamada a guardar sin datos nuevos.")
         return {"status": "no_changes"}
-
-    if val_comentarios is not None: 
-         updates["completada"] = 1
 
     try:
         supabase.table("encuestas").update(updates).eq("id", id_final).execute()

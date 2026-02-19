@@ -81,8 +81,9 @@ class DefaultAgent(Agent):
             
             PASO 1: SALUDO
             - Di: "Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?"
-            - Si dice NO: 
+            - Si dice NO o NO PUEDO: 
               - Di: "Entendido, gracias. Que tenga buen día."
+              - Usa la herramienta 'guardar_encuesta' con status='rejected'.
               - Usa la herramienta 'finalizar_llamada'.
             - Si dice SÍ: Ve INMEDIATAMENTE al PASO 2.
 
@@ -100,12 +101,14 @@ class DefaultAgent(Agent):
             
             PASO 5: CIERRE Y COMENTARIOS
             - Pregunta: "¿Algún comentario final antes de terminar?"
-            - Escucha la respuesta. Usa 'guardar_encuesta' (solo comentarios).
+            - Escucha la respuesta. 
+            - Usa 'guardar_encuesta' con los comentarios y status='completed'.
             - Di: "Muchas gracias por su tiempo, que tenga buen día."
             - Usa la herramienta 'finalizar_llamada'.
 
             EXCEPCIÓN: SI EL USUARIO PIDE COLGAR A MITAD DE LA ENCUESTA (ej: "no tengo tiempo", "cuelga"):
             - Si te dio una nota en su última frase, usa 'guardar_encuesta'.
+            - Si no, usa 'guardar_encuesta' con status='incomplete'.
             - Di exactamente: "De acuerdo, disculpe las molestias. Adiós."
             - Usa la herramienta 'finalizar_llamada'.
             """,
@@ -136,7 +139,8 @@ class DefaultAgent(Agent):
         nota_comercial: Optional[int] = None, 
         nota_instalador: Optional[int] = None, 
         nota_rapidez: Optional[int] = None, 
-        comentarios: Optional[str] = None
+        comentarios: Optional[str] = None,
+        status: Optional[str] = None
     ) -> str | None:
         url = f"{self.server_url}/guardar-encuesta"
         real_id = int(self.survey_id) if str(self.survey_id).isdigit() else id_encuesta
@@ -147,6 +151,7 @@ class DefaultAgent(Agent):
             "nota_instalador": nota_instalador,
             "nota_rapidez": nota_rapidez,
             "comentarios": comentarios,
+            "status": status
         }
         
         asyncio.create_task(self._fire_and_forget_save(url, payload))
