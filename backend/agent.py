@@ -123,18 +123,26 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
 
     async def _save_to_supabase(self, real_id: int, update_data: dict):
         """Guarda los datos directamente en Supabase (sin pasar por el bridge server)."""
+        logger.info(f"🔌 [DB] Estado Supabase: {'conectado' if supabase else 'DESCONECTADO'}")
+        if not supabase:
+            logger.error("❌ [DB] No hay cliente Supabase disponible en el agente. Verifica SUPABASE_URL y SUPABASE_KEY.")
+            return
         try:
-            if not supabase:
-                logger.error("❌ [SAVE] No hay conexión a Supabase en el agente.")
-                return
+            logger.info(f"📤 [DB] Ejecutando UPDATE encuestas SET {update_data} WHERE id={real_id}")
             result = supabase.table("encuestas").update(update_data).eq("id", real_id).execute()
-            logger.info(f"✅ [SAVE] Encuesta ID={real_id} guardada en Supabase: {update_data}")
+            rows_updated = len(result.data) if result.data else 0
+            if rows_updated > 0:
+                logger.info(f"✅ [DB] UPDATE exitoso. Filas actualizadas: {rows_updated}. Datos: {result.data}")
+            else:
+                logger.warning(f"⚠️ [DB] UPDATE ejecutado pero 0 filas afectadas. ¿Existe la encuesta ID={real_id}?")
             # Si completed/incomplete, actualizar también campaign_leads
             status = update_data.get("status")
             if status in ("completed", "incomplete", "rejected_opt_out"):
-                supabase.table("campaign_leads").update({"status": status}).eq("call_id", real_id).execute()
+                cl_result = supabase.table("campaign_leads").update({"status": status}).eq("call_id", real_id).execute()
+                cl_rows = len(cl_result.data) if cl_result.data else 0
+                logger.info(f"📋 [DB] campaign_leads actualizado: {cl_rows} filas con status='{status}'")
         except Exception as e:
-            logger.error(f"❌ [SAVE] Error al guardar en Supabase ID={real_id}: {e}")
+            logger.error(f"❌ [DB] Error CRÍTICO al guardar en Supabase ID={real_id}: {type(e).__name__}: {e}")
 
     @function_tool(name="guardar_encuesta")
     async def _http_tool_guardar_encuesta(
@@ -146,6 +154,9 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
         nota_rapidez: Optional[int] = None, 
         comentarios: Optional[str] = None
     ) -> str | None:
+        logger.info(f"🔧 [TOOL] guardar_encuesta LLAMADA POR EL LLM → id_encuesta={id_encuesta} | self.survey_id={self.survey_id} | real_id será={int(self.survey_id) if str(self.survey_id).isdigit() else id_encuesta}")
+        logger.info(f"   notas: comercial={nota_comercial}, instalador={nota_instalador}, rapidez={nota_rapidez}, comentarios={comentarios}")
+        
         # Siempre usamos el ID de la sala (más fiable que el que pasa el LLM)
         real_id = int(self.survey_id) if str(self.survey_id).isdigit() else id_encuesta
 
