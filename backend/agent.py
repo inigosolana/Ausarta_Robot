@@ -1,4 +1,10 @@
 import logging
+# Silenciar logs HTTP internos muy verbosos
+logging.getLogger("hpack").setLevel(logging.WARNING)
+logging.getLogger("hpack.hpack").setLevel(logging.WARNING)
+logging.getLogger("hpack.table").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 from typing import Optional
 import os
 import aiohttp
@@ -113,8 +119,8 @@ IMPORTANTE: El paso 6 (guardar_encuesta) es OBLIGATORIO. Debes llamarla SIEMPRE 
 
 
     async def on_enter(self):
-        # Delay generoso para que el socket de Cartesia esté completamente listo
-        await asyncio.sleep(2.5)
+        # Pequeño delay para asegurar que el socket de Cartesia esté listo
+        await asyncio.sleep(0.5)
         logger.info(f"📢 Intentando saludo inicial | survey_id={self.survey_id}...")
         try:
             await self.session.say("Buenas, llamo de Ausarta para una encuesta rápida de calidad. ¿Tiene un momento?", allow_interruptions=False)
