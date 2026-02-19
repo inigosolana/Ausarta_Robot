@@ -50,7 +50,13 @@ class DefaultAgent(Agent):
         self.server_url = os.getenv("BRIDGE_SERVER_URL", "http://127.0.0.1:8001")
         
         try:
-            self.survey_id = room_name.split('_')[-1]
+            # Esperamos formatos: "encuesta_{ID}" O "encuesta_{ID}_{TIMESTAMP}"
+            # Ejemplo: encuesta_26 OR encuesta_26_1771497318
+            parts = room_name.split('_')
+            if len(parts) >= 2 and parts[0] == "encuesta":
+                self.survey_id = parts[1]
+            else:
+                self.survey_id = parts[-1] # Fallback para formatos antiguos
         except:
             self.survey_id = "0"
 
