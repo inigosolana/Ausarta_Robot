@@ -654,8 +654,9 @@ async def process_campaigns():
                 leads_to_call = res_leads.data
                 
                 # Prioridad 2: Retries (si no hay pending)
+                # NOTA: 'rejected' NO se reintenta (el usuario dijo que no quiere).
+                # Solo se reintentan: failed (móvil apagado/buzón/ocupado), unreached (no contesta/cuelga antes), incomplete (encuesta a medias)
                 if not leads_to_call:
-                     # Intentar buscar retries (usando filter manual si raw SQL no disponible para OR complejo)
                      res_retries = supabase.table("campaign_leads").select("*") \
                         .eq("campaign_id", campaign_id) \
                         .in_("status", ["failed", "unreached", "incomplete"]) \
@@ -674,7 +675,7 @@ async def process_campaigns():
                 name = lead['customer_name']
                 initial_status = lead['status']
                 
-                call_type = "REINTENTO" if initial_status in ['failed', 'unreached', 'incomplete', 'rejected'] else "LLAMADA NUEVA"
+                call_type = "REINTENTO" if initial_status in ['failed', 'unreached', 'incomplete'] else "LLAMADA NUEVA"
                 
                 print(f"🔄 [Worker] Procesando lead {phone} (Campaña {campaign_id}) | Tipo: {call_type}...")
 
@@ -735,48 +736,104 @@ async def process_campaigns():
                     max_wait_seconds = 600 # 10 minutos máximo de llamada
                     waited = 0
                     call_finished = False
+                    room_gone_count = 0  # Contador de veces consecutivas que la sala no existe
                     
                     while waited < max_wait_seconds:
                         await asyncio.sleep(5) # Polling cada 5s
                         waited += 5
                         
-                        # Consultar estado encuesta
-                        r_status = supabase.table("encuestas").select("status, completada").eq("id", encuesta_id).execute()
-                        if r_status.data:
-                            s = r_status.data[0]
-                            st = s.get('status')
-                            comp = s.get('completada')
+                        try:
+                            # --- CHECK 1: Verificar si la sala LiveKit aún existe ---
+                            # Si la sala ya no existe, la llamada terminó (cuelgue temprano, no contesta, etc.)
+                            try:
+                                rooms = await lkapi.room.list_rooms(api.ListRoomsRequest(names=[room_name]))
+                                room_exists = len(rooms.rooms) > 0 if rooms and rooms.rooms else False
+                            except:
+                                room_exists = False  # Error consultando = asumimos que no existe
                             
-                            # Criterio de fin: status final O completada=1
-                            if comp == 1 or st in ['completed', 'failed', 'rejected', 'rejected_opt_out', 'incomplete', 'unreached']:
-                                print(f"✅ [Worker] Llamada {encuesta_id} terminó con estado: {st}")
-                                call_finished = True
+                            if not room_exists:
+                                room_gone_count += 1
+                                # Esperamos 2 checks consecutivos (10s) para confirmar que realmente se fue
+                                if room_gone_count >= 2:
+                                    print(f"🔍 [Worker] Sala {room_name} NO existe (confirmado). Verificando estado final...")
+                                    # Dar 5s extra para que el fallback del agente grabe el status
+                                    await asyncio.sleep(5)
+                            else:
+                                room_gone_count = 0  # Reset si la sala existe
+                            
+                            # --- CHECK 2: Consultar estado en Supabase ---
+                            r_status = supabase.table("encuestas").select("status, completada").eq("id", encuesta_id).execute()
+                            if r_status.data:
+                                s = r_status.data[0]
+                                st = s.get('status')
+                                comp = s.get('completada')
                                 
-                                # --- FIX CRÍTICO: PROPAGACIÓN DE ESTADO ---
-                                # Actualizamos explícitamente el lead en campaign_leads con el estado final de la encuesta.
-                                # Esto asegura que no se quede en 'calling' eternamente.
-                                lead_update_payload = {"status": st}
+                                # Criterio de fin: status final O completada=1
+                                if comp == 1 or st in ['completed', 'failed', 'rejected', 'rejected_opt_out', 'incomplete', 'unreached']:
+                                    print(f"✅ [Worker] Llamada {encuesta_id} terminó con estado: {st}")
+                                    call_finished = True
+                                    
+                                    # --- PROPAGACIÓN DE ESTADO ---
+                                    lead_update_payload = {"status": st}
+                                    
+                                    # Solo reintentar: failed (apagado/buzón/ocupado), unreached (no contesta), incomplete (a medias)
+                                    # NO reintentar: rejected (usuario dijo no), completed (encuesta terminada)
+                                    if st in ['failed', 'unreached', 'incomplete']:
+                                        next_retry_time = (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
+                                        lead_update_payload["next_retry_at"] = next_retry_time
+                                        print(f"🔄 [Worker] Programando reintento para {phone} en {retry_interval}s")
+                                    
+                                    supabase.table("campaign_leads").update(lead_update_payload).eq("id", lead_id).execute()
+                                    break
                                 
-                                # Si el estado permite reintentos (failed, unreached, incomplete, y AHORA rejected a petición usuario),
-                                # calculamos el next_retry_at.
-                                if st in ['failed', 'unreached', 'incomplete', 'rejected']:
-                                    next_retry_time = (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
-                                    lead_update_payload["next_retry_at"] = next_retry_time
-                                    print(f"🔄 [Worker] Programando reintento para {phone} en {retry_interval}s")
-                                
-                                supabase.table("campaign_leads").update(lead_update_payload).eq("id", lead_id).execute()
-                                
-                                break
+                                # Si la sala desapareció pero el status sigue en 'initiated', el agente no guardó nada
+                                # Esto pasa cuando cuelgan antes de coger (USER_REJECTED)
+                                if room_gone_count >= 2 and st == 'initiated':
+                                    print(f"⚠️ [Worker] Sala desaparecida + status 'initiated' = No contesta/Colgó antes")
+                                    # Marcar como unreached
+                                    supabase.table("encuestas").update({
+                                        "status": "unreached",
+                                        "comentarios": "No contestó o colgó antes de responder"
+                                    }).eq("id", encuesta_id).execute()
+                                    
+                                    lead_update_payload = {
+                                        "status": "unreached",
+                                        "next_retry_at": (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
+                                    }
+                                    supabase.table("campaign_leads").update(lead_update_payload).eq("id", lead_id).execute()
+                                    print(f"🔄 [Worker] Programando reintento para {phone} en {retry_interval}s (unreached)")
+                                    call_finished = True
+                                    break
+                        
+                        except Exception as poll_error:
+                            error_msg = str(poll_error)
+                            if 'ConnectionTerminated' in error_msg or 'ConnectionReset' in error_msg:
+                                print(f"⚠️ [Worker] Conexión Supabase perdida, reconectando...")
+                                # Recrear cliente Supabase
+                                try:
+                                    from supabase import create_client
+                                    global supabase
+                                    supabase = create_client(
+                                        os.getenv("SUPABASE_URL"),
+                                        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+                                    )
+                                    print("✅ [Worker] Supabase reconectado")
+                                except Exception as reconn_err:
+                                    print(f"❌ [Worker] Error reconectando Supabase: {reconn_err}")
+                            else:
+                                print(f"⚠️ [Worker] Error en polling: {poll_error}")
                     
                     if not call_finished:
                         print(f"⚠️ [Worker] Timeout esperando llamada {encuesta_id} (force break)")
-                        # Forzar status update a failed si hubo timeout
-                        supabase.table("campaign_leads").update({
-                            "status": "failed",
-                            "next_retry_at": (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
-                        }).eq("id", lead_id).execute()
-                    else:
-                        pass
+                        # Forzar status update
+                        try:
+                            supabase.table("encuestas").update({"status": "unreached"}).eq("id", encuesta_id).execute()
+                            supabase.table("campaign_leads").update({
+                                "status": "unreached",
+                                "next_retry_at": (datetime.utcnow() + timedelta(seconds=retry_interval)).isoformat()
+                            }).eq("id", lead_id).execute()
+                        except Exception as timeout_err:
+                            print(f"❌ [Worker] Error actualizando timeout: {timeout_err}")
 
                 except Exception as e:
                     print(f"❌ [Worker] Error al llamar {phone}: {e}")
