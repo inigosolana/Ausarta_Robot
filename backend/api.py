@@ -629,6 +629,7 @@ async def get_campaign_details(campaign_id: int):
 
 async def process_campaigns():
     """Bucle principal que busca leads pendientes y lanza llamadas DE UNA EN UNA (Secuencial)"""
+    global supabase  # Necesario para poder recrear el cliente si se pierde la conexión
     print("🚀 Iniciando Worker de Campañas SECUENCIAL (Supabase)...")
     
     while True:
@@ -812,7 +813,6 @@ async def process_campaigns():
                                 # Recrear cliente Supabase
                                 try:
                                     from supabase import create_client
-                                    global supabase
                                     supabase = create_client(
                                         os.getenv("SUPABASE_URL"),
                                         os.getenv("SUPABASE_SERVICE_ROLE_KEY")
